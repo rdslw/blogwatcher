@@ -15,10 +15,15 @@ import (
 )
 
 const sqliteTimeLayout = time.RFC3339Nano
+const dbPathEnvVar = "BLOGWATCHER_DB"
 
 const articleColumns = `id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine, interest_state, interest_reason, interest_engine, interest_judged_at, hn_item_id, hn_points, hn_comments, hn_summary, hn_fetched`
 
 func DefaultDBPath() (string, error) {
+	if override := strings.TrimSpace(os.Getenv(dbPathEnvVar)); override != "" {
+		return override, nil
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

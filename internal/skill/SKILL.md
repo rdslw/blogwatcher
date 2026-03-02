@@ -7,7 +7,7 @@ description: Monitor blogs, websites and RSS/Atom feeds for new articles, summar
 
 Binary: `blogwatcher` (Go CLI, expected in PATH)
 Config: `~/.blogwatcher/config.toml`
-Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
+Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand; override with `BLOGWATCHER_DB`)
 
 ## Commands
 
