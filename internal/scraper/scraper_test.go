@@ -45,6 +45,12 @@ func TestScrapeBlog(t *testing.T) {
 	if articles[1].Title != "Anthropic invests in research" {
 		t.Fatalf("expected second title %q, got %q", "Anthropic invests in research", articles[1].Title)
 	}
+	if articles[1].PublishedDate == nil {
+		t.Fatalf("expected second article published date")
+	}
+	if got := articles[1].PublishedDate.Format("2006-01-02"); got != "2026-03-12" {
+		t.Fatalf("expected published date %q, got %q", "2026-03-12", got)
+	}
 	if articles[0].URL == "" || articles[1].URL == "" {
 		t.Fatalf("expected URLs")
 	}
@@ -92,6 +98,123 @@ func TestExtractTitleDoesNotUseParentHeading(t *testing.T) {
 	title := extractTitle(link, parent)
 	if title != "Link title" {
 		t.Fatalf("expected link-scoped title, got %q", title)
+	}
+}
+
+func TestExtractPublishedDateParsesTimeText(t *testing.T) {
+	_, parent := mustSelections(t, `
+<article>
+  <a href="/two">
+    <div class="meta">
+      <time>Mar 12, 2026</time>
+      <span>Announcements</span>
+    </div>
+    <span class="post-title">Anthropic invests in research</span>
+  </a>
+</article>`)
+
+	published := extractPublishedDate(parent)
+	if published == nil {
+		t.Fatalf("expected published date")
+	}
+	if got := published.Format("2006-01-02"); got != "2026-03-12" {
+		t.Fatalf("expected published date %q, got %q", "2026-03-12", got)
+	}
+}
+
+func TestExtractPublishedDateParsesPolishMonthNames(t *testing.T) {
+	_, parent := mustSelections(t, `
+<article>
+  <a href="/two">
+    <div class="date">24 marca 2026</div>
+    <span class="post-title">Marvipol</span>
+  </a>
+</article>`)
+
+	originalNowFn := nowFn
+	nowFn = func() time.Time {
+		return time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		nowFn = originalNowFn
+	})
+
+	published := extractPublishedDate(parent)
+	if published == nil {
+		t.Fatalf("expected published date")
+	}
+	if got := published.Format("2006-01-02"); got != "2026-03-24" {
+		t.Fatalf("expected published date %q, got %q", "2026-03-24", got)
+	}
+}
+
+func TestExtractPublishedDateRejectsDatesOlderThan180Days(t *testing.T) {
+	_, parent := mustSelections(t, `
+<article>
+  <a href="/two">
+    <div class="date">1 January 2025</div>
+    <span class="post-title">Old post</span>
+  </a>
+</article>`)
+
+	originalNowFn := nowFn
+	nowFn = func() time.Time {
+		return time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		nowFn = originalNowFn
+	})
+
+	if published := extractPublishedDate(parent); published != nil {
+		t.Fatalf("expected old published date to be ignored, got %s", published.Format(time.RFC3339))
+	}
+}
+
+func TestExtractPublishedDateParsesDottedEuropeanDate(t *testing.T) {
+	_, parent := mustSelections(t, `
+<article>
+  <a href="/two">
+    <div class="date">24.03.2026</div>
+    <span class="post-title">European format</span>
+  </a>
+</article>`)
+
+	originalNowFn := nowFn
+	nowFn = func() time.Time {
+		return time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		nowFn = originalNowFn
+	})
+
+	published := extractPublishedDate(parent)
+	if published == nil {
+		t.Fatalf("expected published date")
+	}
+	if got := published.Format("2006-01-02"); got != "2026-03-24" {
+		t.Fatalf("expected published date %q, got %q", "2026-03-24", got)
+	}
+}
+
+func TestExtractPublishedDateRejectsDatesTooFarInFuture(t *testing.T) {
+	_, parent := mustSelections(t, `
+<article>
+  <a href="/two">
+    <div class="date">2026-04-01</div>
+    <span class="post-title">Future post</span>
+  </a>
+</article>`)
+
+	originalNowFn := nowFn
+	nowFn = func() time.Time {
+		return time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC)
+	}
+	t.Cleanup(func() {
+		nowFn = originalNowFn
+	})
+
+	if published := extractPublishedDate(parent); published != nil {
+		t.Fatalf("expected future published date to be ignored, got %s", published.Format(time.RFC3339))
 	}
 }
 

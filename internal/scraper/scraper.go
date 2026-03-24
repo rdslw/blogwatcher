@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
+
+var nowFn = time.Now
 
 type ScrapedArticle struct {
 	Title         string
@@ -75,8 +78,9 @@ func ScrapeBlog(blogURL string, selector string, timeout time.Duration) ([]Scrap
 			return
 		}
 		articles = append(articles, ScrapedArticle{
-			Title: title,
-			URL:   resolved,
+			Title:         title,
+			URL:           resolved,
+			PublishedDate: extractPublishedDate(selection),
 		})
 	})
 
@@ -138,6 +142,125 @@ func hasTitleClass(classAttr string) bool {
 		}
 	}
 	return false
+}
+
+func extractPublishedDate(selection *goquery.Selection) *time.Time {
+	candidates := []string{}
+
+	if timeNode := selection.Find("time").First(); timeNode.Length() > 0 {
+		if datetime, exists := timeNode.Attr("datetime"); exists {
+			candidates = append(candidates, datetime)
+		}
+		if timeText := strings.TrimSpace(timeNode.Text()); timeText != "" {
+			candidates = append(candidates, timeText)
+		}
+	}
+	selection.Find("[class]").Each(func(_ int, s *goquery.Selection) {
+		class, _ := s.Attr("class")
+		class = strings.ToLower(class)
+		if !strings.Contains(class, "date") && !strings.Contains(class, "eyebrow") {
+			return
+		}
+		if text := strings.TrimSpace(s.Text()); text != "" {
+			candidates = append(candidates, text)
+		}
+	})
+	for _, attr := range []string{"data-date", "data-published", "data-published-at"} {
+		if value, exists := selection.Attr(attr); exists && strings.TrimSpace(value) != "" {
+			candidates = append(candidates, strings.TrimSpace(value))
+		}
+	}
+
+	candidates = uniqueNonEmptyStrings(candidates)
+
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02",
+		"2006/01/02",
+		"2006.01.02",
+		"Jan 2, 2006",
+		"January 2, 2006",
+		"2 Jan 2006",
+		"2 January 2006",
+		"Jan 2 2006",
+		"January 2 2006",
+		"2.01.2006",
+		"02.01.2006",
+	}
+
+	for _, candidate := range candidates {
+		candidate = normalizeDateCandidate(candidate)
+		for _, layout := range layouts {
+			if parsed, err := time.Parse(layout, candidate); err == nil {
+				if !isReasonablePublishedDate(parsed) {
+					return nil
+				}
+				return &parsed
+			}
+		}
+	}
+
+	return nil
+}
+
+var nonLetterDateRune = regexp.MustCompile(`[^[:alpha:]]+`)
+
+func normalizeDateCandidate(candidate string) string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return candidate
+	}
+
+	replacements := map[string]string{
+		"stycznia":     "January",
+		"lutego":       "February",
+		"marca":        "March",
+		"kwietnia":     "April",
+		"maja":         "May",
+		"czerwca":      "June",
+		"lipca":        "July",
+		"sierpnia":     "August",
+		"wrzesnia":     "September",
+		"września":     "September",
+		"pazdziernika": "October",
+		"października": "October",
+		"listopada":    "November",
+		"grudnia":      "December",
+	}
+
+	words := strings.Fields(candidate)
+	for i, word := range words {
+		key := strings.ToLower(nonLetterDateRune.ReplaceAllString(word, ""))
+		if replacement, ok := replacements[key]; ok {
+			words[i] = replacement
+		}
+	}
+
+	return strings.Join(words, " ")
+}
+
+func isReasonablePublishedDate(published time.Time) bool {
+	cutoff := nowFn().AddDate(0, 0, -180)
+	upperBound := nowFn().Add(48 * time.Hour)
+	return !published.Before(cutoff) && !published.After(upperBound)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func resolveURL(base *url.URL, href string) string {
