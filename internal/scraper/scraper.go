@@ -83,24 +83,61 @@ func ScrapeBlog(blogURL string, selector string, timeout time.Duration) ([]Scrap
 	return articles, nil
 }
 
-func extractTitle(link *goquery.Selection, parent *goquery.Selection) string {
-	text := strings.TrimSpace(link.Text())
-	if text != "" {
-		return text
+func extractTitle(link *goquery.Selection, _ *goquery.Selection) string {
+	// Prefer heading elements inside the link for a clean title
+	heading := link.Find("h1, h2, h3, h4, h5, h6").First()
+	if heading.Length() > 0 {
+		if text := strings.TrimSpace(heading.Text()); text != "" {
+			return text
+		}
 	}
+
+	// Try elements whose class includes a title segment such as
+	// "title", "post-title", or "article__title", but not "subtitle".
+	var titleEl *goquery.Selection
+	link.Find("[class]").Each(func(_ int, s *goquery.Selection) {
+		if titleEl != nil {
+			return
+		}
+		class, _ := s.Attr("class")
+		if hasTitleClass(class) {
+			if text := strings.TrimSpace(s.Text()); text != "" {
+				titleEl = s
+			}
+		}
+	})
+	if titleEl != nil {
+		if text := strings.TrimSpace(titleEl.Text()); text != "" {
+			return text
+		}
+	}
+
+	// Fall back to title attribute
 	if title, exists := link.Attr("title"); exists {
 		title = strings.TrimSpace(title)
 		if title != "" {
 			return title
 		}
 	}
-	if parent != nil && parent != link {
-		text = strings.TrimSpace(parent.Text())
-		if text != "" {
-			return text
-		}
+
+	// Plain text fallback
+	if text := strings.TrimSpace(link.Text()); text != "" {
+		return text
 	}
 	return ""
+}
+
+func hasTitleClass(classAttr string) bool {
+	for _, className := range strings.Fields(strings.ToLower(classAttr)) {
+		for _, part := range strings.FieldsFunc(className, func(r rune) bool {
+			return r == '-' || r == '_'
+		}) {
+			if part == "title" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func resolveURL(base *url.URL, href string) string {
