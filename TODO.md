@@ -1,5 +1,16 @@
 # TODO (ideas and tasks)
 
+## Migrate module path to fork (added: 2026-03-25)
+
+Goal: rename the Go module from `github.com/Hyaxia/blogwatcher` to the fork-owned path.
+
+When doing this, update all affected places together:
+- `go.mod` module path
+- Go imports throughout the repo
+- linker flag targets in build tooling
+- release configuration such as `.goreleaser.yaml`
+- docs and any install/build instructions that reference the old module path
+
 ## Interest Classifier with LLM (added: 2026-03-24)
 
 Goal: add a separate LLM-based "interest" classification step for articles, distinct from summarization.

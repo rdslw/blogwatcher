@@ -23,6 +23,9 @@ go install github.com/Hyaxia/blogwatcher/cmd/blogwatcher@latest
 
 # Or build locally
 go build ./cmd/blogwatcher
+
+# Or use the bundled build targets
+make build
 ```
 
 Windows and Linux binaries are also available on the GitHub Releases page.
@@ -183,7 +186,32 @@ BlogWatcher stores data in SQLite at `~/.blogwatcher/blogwatcher.db`:
 
 ```bash
 # Run all tests
-go test ./...
+make test
+```
+
+### Building
+
+```bash
+# Run the test suite
+make test
+
+# Build for the current machine
+make build
+
+# Build the Linux release binary
+make build-linux-amd64
+
+# Cross-compile the macOS Apple Silicon binary from Linux
+make build-macos-arm64
+
+# Build both release artifacts into dist/
+make release-builds
+```
+
+By default the build version is derived from `git describe`. You can override it explicitly when needed:
+
+```bash
+VERSION=v1.2.3 make build-macos-arm64
 ```
 
 ### Publishing
