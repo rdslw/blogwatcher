@@ -89,7 +89,25 @@ func (db *Database) init() error {
 		);
 	`
 	_, err := db.conn.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add summary column
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN summary TEXT DEFAULT ''`)
+	if err != nil {
+		// Ignore "duplicate column" error (column already exists)
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN summary_engine TEXT DEFAULT ''`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *Database) AddBlog(blog model.Blog) (model.Blog, error) {
@@ -240,12 +258,12 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 }
 
 func (db *Database) GetArticle(id int64) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine FROM articles WHERE id = ?`, id)
 	return scanArticle(row)
 }
 
 func (db *Database) GetArticleByURL(url string) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine FROM articles WHERE url = ?`, url)
 	return scanArticle(row)
 }
 
@@ -299,7 +317,7 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64) ([]model.Article, error) {
-	query := `SELECT id, blog_id, title, url, published_date, discovered_date, is_read FROM articles WHERE 1=1`
+	query := `SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine FROM articles WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
 		query += " AND is_read = 0"
@@ -353,6 +371,11 @@ func (db *Database) MarkArticleUnread(id int64) (bool, error) {
 	return rows > 0, nil
 }
 
+func (db *Database) UpdateArticleSummary(id int64, summary string, engine string) error {
+	_, err := db.conn.Exec(`UPDATE articles SET summary = ?, summary_engine = ? WHERE id = ?`, summary, engine, id)
+	return err
+}
+
 func scanBlog(scanner interface{ Scan(dest ...any) error }) (*model.Blog, error) {
 	var (
 		id             int64
@@ -393,8 +416,10 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		publishedDate sql.NullString
 		discovered    sql.NullString
 		isRead        bool
+		summary       sql.NullString
+		summaryEngine sql.NullString
 	)
-	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &isRead); err != nil {
+	if err := scanner.Scan(&id, &blogID, &title, &url, &publishedDate, &discovered, &isRead, &summary, &summaryEngine); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -402,11 +427,13 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 	}
 
 	article := &model.Article{
-		ID:     id,
-		BlogID: blogID,
-		Title:  title,
-		URL:    url,
-		IsRead: isRead,
+		ID:            id,
+		BlogID:        blogID,
+		Title:         title,
+		URL:           url,
+		IsRead:        isRead,
+		Summary:       summary.String,
+		SummaryEngine: summaryEngine.String,
 	}
 	if publishedDate.Valid {
 		if parsed, err := parseTime(publishedDate.String); err == nil {

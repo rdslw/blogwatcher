@@ -19,4 +19,6 @@ type Article struct {
 	PublishedDate  *time.Time
 	DiscoveredDate *time.Time
 	IsRead         bool
+	Summary        string
+	SummaryEngine  string
 }

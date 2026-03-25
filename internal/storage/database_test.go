@@ -227,6 +227,47 @@ func TestArticleTimeRoundTripAndNilDiscoveredDate(t *testing.T) {
 	}
 }
 
+func TestArticleSummaryEngineRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{
+		BlogID: blog.ID,
+		Title:  "Title",
+		URL:    "https://example.com/1",
+	})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", "openai"); err != nil {
+		t.Fatalf("update article summary: %v", err)
+	}
+
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched == nil {
+		t.Fatalf("expected article")
+	}
+	if fetched.Summary != "cached summary" {
+		t.Fatalf("expected summary round-trip, got %q", fetched.Summary)
+	}
+	if fetched.SummaryEngine != "openai" {
+		t.Fatalf("expected summary engine round-trip, got %q", fetched.SummaryEngine)
+	}
+}
+
 func TestListArticlesFiltersAndOrdering(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")

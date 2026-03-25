@@ -8,6 +8,7 @@ A Go CLI tool to track blog articles, detect new posts, and manage read/unread s
 -   **Automatic Feed Discovery** - Detects RSS/Atom URLs from blog homepages
 -   **Read/Unread Management** - Track which articles you've read
 -   **Blog Filtering** - View articles from specific blogs
+-   **Article Summaries** - Generate and cache summaries with OpenAI or local fallback modes
 -   **Duplicate Prevention** - Never tracks the same article twice
 -   **Colored CLI Output** - User-friendly terminal interface
 
@@ -75,6 +76,50 @@ blogwatcher articles --all
 
 # List articles from a specific blog
 blogwatcher articles --blog "Tech Blog"
+
+# Show extra article metadata
+blogwatcher articles --verbose
+
+# Show cached summaries alongside articles
+blogwatcher articles --summary
+```
+
+### Summaries
+
+```bash
+# Summarize unread articles
+blogwatcher summary
+
+# Summarize all articles for a blog
+blogwatcher summary --all --blog "Tech Blog"
+
+# Refresh cached summaries
+blogwatcher summary --refresh
+
+# Force local non-LLM summarization
+blogwatcher summary --extractive
+
+# Show summarizer metadata
+blogwatcher summary --verbose
+```
+
+### Summary Configuration
+
+Create `~/.blogwatcher/config.toml`:
+
+```toml
+[summary]
+model = "gpt-5.4-nano"
+openai_api_key = "sk-..."
+max_request_bytes = 40960
+system_prompt = """
+You are a concise blog article summarizer. Summarize the following article text in 100 to 400 words.
+Focus on the key points, main arguments, and conclusions.
+Ignore navigation, cookie/privacy/legal notices, login or registration prompts,
+subscription/paywall prompts, social-sharing UI, ads, and related/recent article lists if they appear in the text.
+Use clear, informative language. Output only the summary text.
+Use the same language as the blog article.
+"""
 ```
 
 ### Managing Read Status
@@ -126,7 +171,7 @@ When RSS isn't available, provide a CSS selector that matches article links:
 BlogWatcher stores data in SQLite at `~/.blogwatcher/blogwatcher.db`:
 
 -   **blogs** - Tracked blogs (name, URL, feed URL, scrape selector)
--   **articles** - Discovered articles (title, URL, dates, read status)
+-   **articles** - Discovered articles (title, URL, dates, read status, cached summaries, summary engine)
 
 ## Development
 

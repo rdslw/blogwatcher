@@ -11,10 +11,12 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/Hyaxia/blogwatcher/internal/config"
 	"github.com/Hyaxia/blogwatcher/internal/controller"
 	"github.com/Hyaxia/blogwatcher/internal/model"
 	"github.com/Hyaxia/blogwatcher/internal/scanner"
 	"github.com/Hyaxia/blogwatcher/internal/storage"
+	"github.com/Hyaxia/blogwatcher/internal/summarizer"
 )
 
 func newAddCommand() *cobra.Command {
@@ -195,6 +197,8 @@ func newScanCommand() *cobra.Command {
 func newArticlesCommand() *cobra.Command {
 	var showAll bool
 	var blogName string
+	var showSummary bool
+	var verbose bool
 
 	cmd := &cobra.Command{
 		Use:   "articles",
@@ -225,7 +229,7 @@ func newArticlesCommand() *cobra.Command {
 			}
 			color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(articles))
 			for _, article := range articles {
-				printArticle(article, blogNames[article.BlogID])
+				printArticle(article, blogNames[article.BlogID], showSummary, verbose)
 			}
 			return nil
 		},
@@ -233,6 +237,8 @@ func newArticlesCommand() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summaries alongside articles")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show extra article metadata")
 	return cmd
 }
 
@@ -353,6 +359,132 @@ func newUnreadCommand() *cobra.Command {
 	return cmd
 }
 
+func newSummaryCommand() *cobra.Command {
+	var blogName string
+	var showAll bool
+	var forceExtractive bool
+	var refresh bool
+	var limit int
+	var workers int
+	var modelFlag string
+	var verbose bool
+
+	cmd := &cobra.Command{
+		Use:   "summary [article_id]",
+		Short: "Summarize articles using AI or extractive fallback.",
+		Long: `Summarize articles. If OPENAI_API_KEY is set, uses OpenAI for AI-powered summaries.
+Otherwise, extracts the first ~2000 characters of article text (extractive mode).
+
+Without arguments, summarizes all unread articles. With an article ID, summarizes that specific article.
+Summaries are cached in the database for instant retrieval on repeat calls.
+
+Configuration via ~/.blogwatcher/config.toml:
+
+  [summary]
+  model = "gpt-5.4-nano"           # OpenAI model to use
+  system_prompt = "..."            # Custom system prompt
+  max_request_bytes = 40960        # Max article text sent to LLM (bytes)
+
+Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
+
+  gpt-4o-mini     ~$0.0015/article   (cheapest, older model)
+  gpt-5-mini      ~$0.0029/article
+  gpt-5.4-nano    ~$0.0023/article   (default, best value)
+  gpt-5.4-mini    ~$0.0084/article   (strongest mini model)`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				printError(fmt.Errorf("config: %v", err))
+				return markError(err)
+			}
+			opts := summarizer.OptionsFromConfig(cfg.Summary)
+			if modelFlag != "" {
+				opts.Model = modelFlag
+			}
+
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if len(args) == 1 {
+				articleID, err := parseID(args[0])
+				if err != nil {
+					return err
+				}
+				result, err := controller.SummarizeArticle(db, articleID, forceExtractive, refresh, opts)
+				if err != nil {
+					printError(err)
+					return markError(err)
+				}
+				printSummaryResult(result, verbose)
+			} else {
+				results, err := controller.SummarizeArticles(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts)
+				if err != nil {
+					printError(err)
+					return markError(err)
+				}
+				if len(results) == 0 {
+					if showAll {
+						fmt.Println("No articles found.")
+					} else {
+						color.New(color.FgGreen).Println("No unread articles to summarize!")
+					}
+					return nil
+				}
+				label := "Unread article summaries"
+				if showAll {
+					label = "All article summaries"
+				}
+				color.New(color.FgCyan, color.Bold).Printf("# %s (%d)\n\n", label, len(results))
+				for _, result := range results {
+					printSummaryResult(result, verbose)
+				}
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Summarize all articles (including read)")
+	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback (first ~2K chars, ignore OPENAI_API_KEY)")
+	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-generate summary even if cached")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to summarize (safety limit for LLM costs)")
+	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel summarization")
+	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show engine and cache metadata")
+	return cmd
+}
+
+func printSummaryResult(result controller.SummaryResult, verbose bool) {
+	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
+
+	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
+	fmt.Printf("- **Blog:** %s\n", result.BlogName)
+	if result.Article.PublishedDate != nil {
+		fmt.Printf("- **Published:** %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+	}
+	if verbose {
+		summarizerLabel := result.Engine
+		if result.Cached {
+			summarizerLabel += " (cached)"
+		}
+		fmt.Printf("- **Summarizer:** %s\n", summarizerLabel)
+	}
+	if result.Warning != "" {
+		color.New(color.FgYellow).Printf("- **Note:** %s\n", result.Warning)
+	}
+
+	if result.Article.Summary != "" {
+		fmt.Printf("- **Summary:** %s\n", result.Article.Summary)
+	} else {
+		color.New(color.FgYellow).Printf("- **Summary:** (failed to generate)\n")
+	}
+	fmt.Println()
+}
+
 func printScanResult(result scanner.ScanResult) {
 	statusColor := color.FgWhite
 	if result.NewArticles > 0 {
@@ -375,19 +507,38 @@ func printScanResult(result scanner.ScanResult) {
 	color.New(statusColor).Printf("New: %d\n", result.NewArticles)
 }
 
-func printArticle(article model.Article, blogName string) {
+func printArticle(article model.Article, blogName string, showSummary bool, verbose bool) {
 	status := color.New(color.FgYellow).Sprint("[new]")
 	if article.IsRead {
 		status = color.New(color.FgHiBlack).Sprint("[read]")
 	}
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", article.ID)
 	fmt.Printf("  %s %s %s\n", idStr, status, article.Title)
-	fmt.Printf("       Blog: %s\n", blogName)
-	fmt.Printf("       URL: %s\n", article.URL)
+	fmt.Printf("       URL: %s\n", displayArticleURL(article.URL))
+	if verbose {
+		fmt.Printf("       Blog: %s\n", blogName)
+	}
 	if article.PublishedDate != nil {
 		fmt.Printf("       Published: %s\n", article.PublishedDate.Format("2006-01-02"))
 	}
+	if verbose && article.DiscoveredDate != nil {
+		fmt.Printf("       Discovered: %s\n", article.DiscoveredDate.Format("2006-01-02 15:04"))
+	}
+	if verbose && article.Summary != "" {
+		summarizerLabel := article.SummaryEngine
+		if summarizerLabel == "" {
+			summarizerLabel = "unknown"
+		}
+		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
+	}
+	if showSummary && article.Summary != "" {
+		fmt.Printf("       Summary: %s\n", article.Summary)
+	}
 	fmt.Println()
+}
+
+func displayArticleURL(rawURL string) string {
+	return strings.TrimSuffix(rawURL, "#atom-everything")
 }
 
 func printError(err error) {

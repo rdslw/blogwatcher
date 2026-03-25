@@ -30,6 +30,7 @@ description: Use when managing or interacting with favorite blogs via the BlogWa
 ## Output Conventions
 - Preserve user-friendly CLI output with colors and clear errors.
 - When listing posts available for reading, always include the link to each post in the output.
+- Keep `articles` default output compact; use `articles -v` for extra metadata such as blog name, discovered timestamp, and summarizer info.
 - Keep error handling consistent with existing exceptions (`BlogNotFoundError`, `BlogAlreadyExistsError`, `ArticleNotFoundError`).
 
 ### Example (posts available for reading)
@@ -37,11 +38,21 @@ description: Use when managing or interacting with favorite blogs via the BlogWa
 Unread articles (2):
 
   [12] [new] Understanding Click Contexts
-       Blog: Real Python
        URL: https://realpython.com/click-context/
        Published: 2025-11-02
 
   [13] [new] Async IO in Practice
-       Blog: Test & Code
        URL: https://testandcode.com/async-io-in-practice/
+```
+
+### Example (`articles -v`)
+```text
+Unread articles (1):
+
+  [12] [new] Understanding Click Contexts
+       URL: https://realpython.com/click-context/
+       Blog: Real Python
+       Published: 2025-11-02
+       Discovered: 2025-11-02 08:15
+       Summarizer: openai
 ```

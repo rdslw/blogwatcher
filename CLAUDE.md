@@ -21,7 +21,7 @@ go run ./cmd/blogwatcher ...
 ### Database
 SQLite database stored at `~/.blogwatcher/blogwatcher.db` with two tables:
 - `blogs` - Tracked blogs (name, url, feed_url, scrape_selector, last_scanned)
-- `articles` - Discovered articles (blog_id, title, url, published_date, discovered_date, is_read)
+- `articles` - Discovered articles (blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine)
 
 
 ## Tech Stack
