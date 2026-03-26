@@ -11,12 +11,12 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/Hyaxia/blogwatcher/internal/config"
-	"github.com/Hyaxia/blogwatcher/internal/controller"
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/scanner"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
-	"github.com/Hyaxia/blogwatcher/internal/summarizer"
+	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/controller"
+	"github.com/rdslw/blogwatcher/internal/model"
+	"github.com/rdslw/blogwatcher/internal/scanner"
+	"github.com/rdslw/blogwatcher/internal/storage"
+	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
 
 func newAddCommand() *cobra.Command {

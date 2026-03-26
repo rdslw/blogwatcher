@@ -6,7 +6,7 @@ BINARY := blogwatcher
 PACKAGE := ./cmd/blogwatcher
 DIST_DIR := dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || printf 'dev')
-LDFLAGS := -s -w -X github.com/Hyaxia/blogwatcher/internal/version.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/rdslw/blogwatcher/internal/version.Version=$(VERSION)
 
 help: ## Show available make targets
 	@printf "Available targets:\n"

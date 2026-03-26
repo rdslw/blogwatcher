@@ -16,10 +16,10 @@ A Go CLI tool to track blog articles, detect new posts, and manage read/unread s
 
 ```bash
 # Homebrew (Linux)
-brew install Hyaxia/tap/blogwatcher
+brew install rdslw/tap/blogwatcher
 
 # Install the CLI
-go install github.com/Hyaxia/blogwatcher/cmd/blogwatcher@latest
+go install github.com/rdslw/blogwatcher/cmd/blogwatcher@latest
 
 # Or build locally
 go build ./cmd/blogwatcher

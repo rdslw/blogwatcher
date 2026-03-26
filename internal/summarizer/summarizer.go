@@ -14,7 +14,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
-	"github.com/Hyaxia/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/config"
 )
 
 const (

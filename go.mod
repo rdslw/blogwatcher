@@ -1,4 +1,4 @@
-module github.com/Hyaxia/blogwatcher
+module github.com/rdslw/blogwatcher
 
 go 1.24.0
 

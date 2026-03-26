@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Hyaxia/blogwatcher/internal/model"
-	"github.com/Hyaxia/blogwatcher/internal/storage"
-	"github.com/Hyaxia/blogwatcher/internal/summarizer"
+	"github.com/rdslw/blogwatcher/internal/model"
+	"github.com/rdslw/blogwatcher/internal/storage"
+	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
 
 func TestAddBlogAndRemoveBlog(t *testing.T) {
