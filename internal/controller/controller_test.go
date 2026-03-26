@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Hyaxia/blogwatcher/internal/model"
@@ -89,6 +90,67 @@ func TestGetArticlesFilters(t *testing.T) {
 
 	if _, _, err := GetArticles(db, false, "Missing"); err == nil {
 		t.Fatalf("expected blog not found error")
+	}
+}
+
+func TestExportBlogsScript(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if _, err := AddBlog(db, "Zeta's Blog", "https://zeta.example.com", "", "article h2 a[href*='post']"); err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	if _, err := AddBlog(db, "Alpha", "https://alpha.example.com", "https://alpha.example.com/feed.xml", ""); err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	if _, err := AddBlog(db, "-Daily Notes", "https://dash.example.com", "", "main a"); err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	script, err := ExportBlogsScript(db)
+	if err != nil {
+		t.Fatalf("export blogs: %v", err)
+	}
+
+	expected := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"",
+		"# Recreate tracked blog definitions on another machine.",
+		"# Usage: blogwatcher export > blogs.sh && sh blogs.sh",
+		"",
+		"blogwatcher add --scrape-selector 'main a' -- '-Daily Notes' 'https://dash.example.com'",
+		"blogwatcher add --feed-url 'https://alpha.example.com/feed.xml' -- 'Alpha' 'https://alpha.example.com'",
+		"blogwatcher add --scrape-selector 'article h2 a[href*='\"'\"'post'\"'\"']' -- 'Zeta'\"'\"'s Blog' 'https://zeta.example.com'",
+		"",
+	}, "\n")
+
+	if script != expected {
+		t.Fatalf("unexpected export script:\n%s", script)
+	}
+}
+
+func TestExportBlogsScriptEmpty(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	script, err := ExportBlogsScript(db)
+	if err != nil {
+		t.Fatalf("export blogs: %v", err)
+	}
+
+	expected := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"",
+		"# Recreate tracked blog definitions on another machine.",
+		"# Usage: blogwatcher export > blogs.sh && sh blogs.sh",
+		"# No blogs configured.",
+		"",
+	}, "\n")
+
+	if script != expected {
+		t.Fatalf("unexpected empty export script:\n%s", script)
 	}
 }
 

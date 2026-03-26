@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Hyaxia/blogwatcher/internal/model"
@@ -111,6 +112,51 @@ func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.A
 	}
 
 	return articles, blogNames, nil
+}
+
+func ExportBlogsScript(db *storage.Database) (string, error) {
+	blogs, err := db.ListBlogs()
+	if err != nil {
+		return "", err
+	}
+
+	var out strings.Builder
+	out.WriteString("#!/bin/sh\n")
+	out.WriteString("set -eu\n\n")
+	out.WriteString("# Recreate tracked blog definitions on another machine.\n")
+	out.WriteString("# Usage: blogwatcher export > blogs.sh && sh blogs.sh\n")
+
+	if len(blogs) == 0 {
+		out.WriteString("# No blogs configured.\n")
+		return out.String(), nil
+	}
+
+	out.WriteString("\n")
+	for _, blog := range blogs {
+		out.WriteString("blogwatcher add")
+		if blog.FeedURL != "" {
+			out.WriteString(" --feed-url ")
+			out.WriteString(shellQuote(blog.FeedURL))
+		}
+		if blog.ScrapeSelector != "" {
+			out.WriteString(" --scrape-selector ")
+			out.WriteString(shellQuote(blog.ScrapeSelector))
+		}
+		out.WriteString(" -- ")
+		out.WriteString(shellQuote(blog.Name))
+		out.WriteString(" ")
+		out.WriteString(shellQuote(blog.URL))
+		out.WriteString("\n")
+	}
+
+	return out.String(), nil
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, error) {

@@ -122,6 +122,35 @@ func newBlogsCommand() *cobra.Command {
 	return cmd
 }
 
+func newExportCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export tracked blog definitions as a shell script.",
+		Long: `Export tracked blog definitions as a POSIX shell script.
+
+The output can be redirected to a file and run on another machine that has
+blogwatcher installed, for example:
+
+  blogwatcher export > blogs.sh
+  sh blogs.sh`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			script, err := controller.ExportBlogsScript(db)
+			if err != nil {
+				return err
+			}
+			fmt.Print(script)
+			return nil
+		},
+	}
+	return cmd
+}
+
 func newScanCommand() *cobra.Command {
 	var silent bool
 	var workers int

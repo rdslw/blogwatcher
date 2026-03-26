@@ -56,6 +56,10 @@ blogwatcher remove "My Favorite Blog"
 
 # Remove without confirmation
 blogwatcher remove "My Favorite Blog" -y
+
+# Export blog definitions as a shell script for another machine
+blogwatcher export > blogs.sh
+sh blogs.sh
 ```
 
 ### Scanning for New Articles

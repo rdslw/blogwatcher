@@ -20,6 +20,7 @@ func NewRootCommand() *cobra.Command {
 	rootCmd.AddCommand(newAddCommand())
 	rootCmd.AddCommand(newRemoveCommand())
 	rootCmd.AddCommand(newBlogsCommand())
+	rootCmd.AddCommand(newExportCommand())
 	rootCmd.AddCommand(newScanCommand())
 	rootCmd.AddCommand(newArticlesCommand())
 	rootCmd.AddCommand(newReadCommand())
