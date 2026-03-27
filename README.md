@@ -93,6 +93,13 @@ blogwatcher articles --all
 # List articles from a specific blog
 blogwatcher articles --blog "Tech Blog"
 
+# Show specific articles by ID
+blogwatcher articles 42 99
+
+# Filter by interest: all (default), norm (prefer+normal), prefer
+blogwatcher articles --filter norm
+blogwatcher articles -f prefer
+
 # Show extra article metadata
 blogwatcher articles --verbose
 

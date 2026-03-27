@@ -92,7 +92,7 @@ func RemoveBlog(db *storage.Database, name string) error {
 	return err
 }
 
-func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.Article, map[int64]string, error) {
+func GetArticles(db *storage.Database, showAll bool, blogName string, interestFilter string) ([]model.Article, map[int64]string, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -109,16 +109,71 @@ func GetArticles(db *storage.Database, showAll bool, blogName string) ([]model.A
 	if err != nil {
 		return nil, nil, err
 	}
-	blogs, err := db.ListBlogs()
+
+	articles = filterByInterest(articles, interestFilter)
+
+	blogNames, err := buildBlogNames(db)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	return articles, blogNames, nil
+}
+
+func GetArticlesByIDs(db *storage.Database, ids []int64) ([]model.Article, map[int64]string, error) {
+	var articles []model.Article
+	for _, id := range ids {
+		article, err := db.GetArticle(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if article == nil {
+			return nil, nil, ArticleNotFoundError{ID: id}
+		}
+		articles = append(articles, *article)
+	}
+
+	blogNames, err := buildBlogNames(db)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return articles, blogNames, nil
+}
+
+func buildBlogNames(db *storage.Database) (map[int64]string, error) {
+	blogs, err := db.ListBlogs()
+	if err != nil {
+		return nil, err
 	}
 	blogNames := make(map[int64]string)
 	for _, blog := range blogs {
 		blogNames[blog.ID] = blog.Name
 	}
+	return blogNames, nil
+}
 
-	return articles, blogNames, nil
+func filterByInterest(articles []model.Article, filter string) []model.Article {
+	switch filter {
+	case "prefer":
+		filtered := articles[:0:0]
+		for _, a := range articles {
+			if a.InterestState == model.InterestStatePrefer {
+				filtered = append(filtered, a)
+			}
+		}
+		return filtered
+	case "norm":
+		filtered := articles[:0:0]
+		for _, a := range articles {
+			if a.InterestState != model.InterestStateHide {
+				filtered = append(filtered, a)
+			}
+		}
+		return filtered
+	default:
+		return articles
+	}
 }
 
 func ExportBlogsScript(db *storage.Database) (string, error) {

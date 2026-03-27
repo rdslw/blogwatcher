@@ -228,23 +228,56 @@ func newArticlesCommand() *cobra.Command {
 	var blogName string
 	var showSummary bool
 	var verbose bool
+	var interestFilter string
 
 	cmd := &cobra.Command{
-		Use:   "articles",
+		Use:   "articles [article_id...]",
 		Short: "List articles.",
+		Long: `List articles. When article IDs are given, show only those articles.
+Otherwise list unread articles (or all with --all).
+
+The --filter flag controls interest-based filtering:
+  all     no filtering (default)
+  norm    show prefer and normal only (hide "hide")
+  prefer  show prefer only`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			switch interestFilter {
+			case "all", "norm", "prefer":
+			default:
+				return fmt.Errorf("invalid --filter value: %q (must be all, norm, or prefer)", interestFilter)
+			}
+
 			db, err := storage.OpenDatabase("")
 			if err != nil {
 				return err
 			}
 			defer db.Close()
-			articles, blogNames, err := controller.GetArticles(db, showAll, blogName)
+
+			var articles []model.Article
+			var blogNames map[int64]string
+
+			if len(args) > 0 {
+				ids := make([]int64, 0, len(args))
+				for _, arg := range args {
+					id, err := parseID(arg)
+					if err != nil {
+						return err
+					}
+					ids = append(ids, id)
+				}
+				articles, blogNames, err = controller.GetArticlesByIDs(db, ids)
+			} else {
+				articles, blogNames, err = controller.GetArticles(db, showAll, blogName, interestFilter)
+			}
 			if err != nil {
 				printError(err)
 				return markError(err)
 			}
+
 			if len(articles) == 0 {
-				if showAll {
+				if len(args) > 0 {
+					fmt.Println("No articles found.")
+				} else if showAll {
 					fmt.Println("No articles found.")
 				} else {
 					color.New(color.FgGreen).Println("No unread articles!")
@@ -252,11 +285,13 @@ func newArticlesCommand() *cobra.Command {
 				return nil
 			}
 
-			label := "Unread articles"
-			if showAll {
-				label = "All articles"
+			if len(args) == 0 {
+				label := "Unread articles"
+				if showAll {
+					label = "All articles"
+				}
+				color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(articles))
 			}
-			color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(articles))
 			for _, article := range articles {
 				printArticle(article, blogNames[article.BlogID], showSummary, verbose)
 			}
@@ -268,6 +303,7 @@ func newArticlesCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summaries alongside articles")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show extra article metadata")
+	cmd.Flags().StringVarP(&interestFilter, "filter", "f", "all", "Interest filter: all, norm, prefer")
 	return cmd
 }
 
@@ -316,7 +352,7 @@ func newReadAllCommand() *cobra.Command {
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName)
+			articles, blogNames, err := controller.GetArticles(db, false, blogName, "all")
 			if err != nil {
 				printError(err)
 				return markError(err)

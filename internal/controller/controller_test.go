@@ -80,7 +80,7 @@ func TestGetArticlesFilters(t *testing.T) {
 		t.Fatalf("add article: %v", err)
 	}
 
-	articles, blogNames, err := GetArticles(db, false, "")
+	articles, blogNames, err := GetArticles(db, false, "", "all")
 	if err != nil {
 		t.Fatalf("get articles: %v", err)
 	}
@@ -91,8 +91,109 @@ func TestGetArticlesFilters(t *testing.T) {
 		t.Fatalf("expected blog name")
 	}
 
-	if _, _, err := GetArticles(db, false, "Missing"); err == nil {
+	if _, _, err := GetArticles(db, false, "Missing", "all"); err == nil {
 		t.Fatalf("expected blog not found error")
+	}
+}
+
+func TestGetArticlesInterestFilter(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	for _, tc := range []struct {
+		title string
+		state string
+	}{
+		{"Preferred", model.InterestStatePrefer},
+		{"Normal", model.InterestStateNormal},
+		{"Hidden", model.InterestStateHide},
+		{"Unclassified", ""},
+	} {
+		a, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: tc.title, URL: "https://example.com/" + tc.title})
+		if err != nil {
+			t.Fatalf("add article: %v", err)
+		}
+		if tc.state != "" {
+			if err := db.UpdateArticleInterest(a.ID, tc.state, "test", "test", time.Now()); err != nil {
+				t.Fatalf("update interest: %v", err)
+			}
+		}
+	}
+
+	all, _, err := GetArticles(db, true, "", "all")
+	if err != nil {
+		t.Fatalf("filter all: %v", err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("expected 4 articles with filter=all, got %d", len(all))
+	}
+
+	norm, _, err := GetArticles(db, true, "", "norm")
+	if err != nil {
+		t.Fatalf("filter norm: %v", err)
+	}
+	if len(norm) != 3 {
+		t.Fatalf("expected 3 articles with filter=norm, got %d", len(norm))
+	}
+	for _, a := range norm {
+		if a.InterestState == model.InterestStateHide {
+			t.Fatalf("filter=norm should not include hidden articles")
+		}
+	}
+
+	prefer, _, err := GetArticles(db, true, "", "prefer")
+	if err != nil {
+		t.Fatalf("filter prefer: %v", err)
+	}
+	if len(prefer) != 1 {
+		t.Fatalf("expected 1 article with filter=prefer, got %d", len(prefer))
+	}
+	if prefer[0].InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected prefer state, got %q", prefer[0].InterestState)
+	}
+}
+
+func TestGetArticlesByIDs(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	a1, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "First", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "Second", URL: "https://example.com/2"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	a3, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Third", URL: "https://example.com/3"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	articles, blogNames, err := GetArticlesByIDs(db, []int64{a1.ID, a3.ID})
+	if err != nil {
+		t.Fatalf("get by ids: %v", err)
+	}
+	if len(articles) != 2 {
+		t.Fatalf("expected 2 articles, got %d", len(articles))
+	}
+	if articles[0].ID != a1.ID || articles[1].ID != a3.ID {
+		t.Fatalf("unexpected article IDs: %d, %d", articles[0].ID, articles[1].ID)
+	}
+	if blogNames[blog.ID] != "Test" {
+		t.Fatalf("expected blog name")
+	}
+
+	if _, _, err := GetArticlesByIDs(db, []int64{9999}); err == nil {
+		t.Fatalf("expected article not found error")
 	}
 }
 
