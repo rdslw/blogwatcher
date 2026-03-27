@@ -165,7 +165,8 @@ Use the same language as the blog article.
 Create `~/.blogwatcher/config.toml` with a default interest prompt and optional per-blog overrides:
 
 ```toml
-[defaults]
+[interest]
+openai_api_key = "sk-..."
 model = "gpt-5.4-nano"
 system_prompt = """
 You are classifying whether a blog article is worth prioritizing for the user.
@@ -180,7 +181,7 @@ Hide generic product launches, funding news, AI hot takes, and obvious marketing
 ```
 
 ```toml
-# Optional per-blog override. If present, this replaces defaults.interest_prompt for that blog.
+# Optional per-blog override. If present, this replaces interest_prompt for that blog.
 [interest.blogs."Tech Blog"]
 interest_prompt = """
 Prefer compiler, databases, and distributed systems posts with benchmarks or implementation details.
@@ -193,13 +194,13 @@ is missing, BlogWatcher generates and stores one first.
 
 `interest_prompt` is optional. If `config.toml` is empty or the field is omitted,
 BlogWatcher keeps `interest_prompt` empty and leaves articles unclassified, so no
-interest ranking is created unless you define either `defaults.interest_prompt` or a
+interest ranking is created unless you define either `interest.interest_prompt` or a
 blog-specific override.
 
 Example `interest_prompt` you can start from:
 
 ```toml
-[defaults]
+[interest]
 interest_prompt = """
 Prefer technical depth, clear new information, or unusually actionable insight.
 Hide low-signal announcements, generic marketing, repetitive posts, and generic launch news.

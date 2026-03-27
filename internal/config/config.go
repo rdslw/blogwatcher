@@ -21,27 +21,20 @@ type SummaryConfig struct {
 	MaxRequestBytes int    `toml:"max_request_bytes"`
 }
 
-type DefaultsConfig struct {
-	Model          string `toml:"model"`
-	SystemPrompt   string `toml:"system_prompt"`
-	InterestPrompt string `toml:"interest_prompt"`
-}
-
 type InterestBlogConfig struct {
 	InterestPrompt string `toml:"interest_prompt"`
 }
 
 type InterestConfig struct {
-	OpenAIAPIKey  string                        `toml:"openai_api_key"`
-	Model         string                        `toml:"model"`
-	SystemPrompt  string                        `toml:"system_prompt"`
-	Prompt        string                        `toml:"prompt"`
-	DefaultPrompt string                        `toml:"-"`
-	Blogs         map[string]InterestBlogConfig `toml:"blogs"`
+	OpenAIAPIKey    string                        `toml:"openai_api_key"`
+	Model           string                        `toml:"model"`
+	SystemPrompt    string                        `toml:"system_prompt"`
+	InterestPrompt  string                        `toml:"interest_prompt"`
+	Blogs           map[string]InterestBlogConfig `toml:"blogs"`
 }
 
 func (cfg InterestConfig) PromptForBlog(blogName string) string {
-	prompt := cfg.DefaultPrompt
+	prompt := cfg.InterestPrompt
 	blogRule, ok := cfg.Blogs[blogName]
 	if !ok {
 		return prompt
@@ -54,7 +47,6 @@ func (cfg InterestConfig) PromptForBlog(blogName string) string {
 
 type Config struct {
 	Summary  SummaryConfig  `toml:"summary"`
-	Defaults DefaultsConfig `toml:"defaults"`
 	Interest InterestConfig `toml:"interest"`
 }
 
@@ -65,12 +57,10 @@ func DefaultConfig() Config {
 			SystemPrompt:    DefaultSystemPrompt,
 			MaxRequestBytes: DefaultMaxRequestBytes,
 		},
-		Defaults: DefaultsConfig{
+		Interest: InterestConfig{
 			Model:        DefaultModel,
 			SystemPrompt: DefaultInterestPrompt,
-		},
-		Interest: InterestConfig{
-			Blogs: map[string]InterestBlogConfig{},
+			Blogs:        map[string]InterestBlogConfig{},
 		},
 	}
 }
@@ -112,26 +102,12 @@ func Load() (Config, error) {
 	if cfg.Summary.MaxRequestBytes <= 0 {
 		cfg.Summary.MaxRequestBytes = DefaultMaxRequestBytes
 	}
-	if cfg.Defaults.Model == "" {
-		if cfg.Interest.Model != "" {
-			cfg.Defaults.Model = cfg.Interest.Model
-		} else {
-			cfg.Defaults.Model = DefaultModel
-		}
+	if cfg.Interest.Model == "" {
+		cfg.Interest.Model = DefaultModel
 	}
-	if cfg.Defaults.SystemPrompt == "" {
-		if cfg.Interest.SystemPrompt != "" {
-			cfg.Defaults.SystemPrompt = cfg.Interest.SystemPrompt
-		} else {
-			cfg.Defaults.SystemPrompt = DefaultInterestPrompt
-		}
+	if cfg.Interest.SystemPrompt == "" {
+		cfg.Interest.SystemPrompt = DefaultInterestPrompt
 	}
-	if cfg.Defaults.InterestPrompt == "" {
-		cfg.Defaults.InterestPrompt = cfg.Interest.Prompt
-	}
-	cfg.Interest.Model = cfg.Defaults.Model
-	cfg.Interest.SystemPrompt = cfg.Defaults.SystemPrompt
-	cfg.Interest.DefaultPrompt = cfg.Defaults.InterestPrompt
 	if cfg.Interest.Blogs == nil {
 		cfg.Interest.Blogs = map[string]InterestBlogConfig{}
 	}

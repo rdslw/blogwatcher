@@ -506,7 +506,7 @@ func newInterestCommand() *cobra.Command {
 The classifier always uses the article summary as input. If a summary is missing,
 blogwatcher generates and caches one first.
 
-If defaults.interest_prompt and the per-blog override are both empty, articles are
+If interest_prompt and the per-blog override are both empty, articles are
 left unclassified and no interest ranking is stored.
 
 Example interest_prompt:
@@ -516,7 +516,7 @@ Example interest_prompt:
 
 Configuration via ~/.blogwatcher/config.toml:
 
-  [defaults]
+  [interest]
   model = "gpt-5.4-nano"
   system_prompt = "..."
   interest_prompt = "Prefer systems posts with concrete benchmarks and hide generic launch posts."

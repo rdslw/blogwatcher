@@ -4,14 +4,14 @@ import "testing"
 
 func TestDefaultConfigLeavesInterestPromptEmpty(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Defaults.InterestPrompt != "" {
-		t.Fatalf("expected default interest prompt to be empty, got %q", cfg.Defaults.InterestPrompt)
+	if cfg.Interest.InterestPrompt != "" {
+		t.Fatalf("expected default interest prompt to be empty, got %q", cfg.Interest.InterestPrompt)
 	}
 }
 
 func TestInterestPromptForBlogUsesOverrideWhenPresent(t *testing.T) {
 	cfg := InterestConfig{
-		DefaultPrompt: "Default prompt",
+		InterestPrompt: "Default prompt",
 		Blogs: map[string]InterestBlogConfig{
 			"Prompt Blog": {
 				InterestPrompt: "Custom prompt",
