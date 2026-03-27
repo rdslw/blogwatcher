@@ -2,6 +2,21 @@ package model
 
 import "time"
 
+const (
+	InterestStatePrefer = "prefer"
+	InterestStateNormal = "normal"
+	InterestStateHide   = "hide"
+)
+
+func IsValidInterestState(value string) bool {
+	switch value {
+	case InterestStatePrefer, InterestStateNormal, InterestStateHide:
+		return true
+	default:
+		return false
+	}
+}
+
 type Blog struct {
 	ID             int64
 	Name           string
@@ -21,4 +36,8 @@ type Article struct {
 	IsRead         bool
 	Summary        string
 	SummaryEngine  string
+	InterestState  string
+	InterestReason string
+	InterestEngine string
+	InterestJudged *time.Time
 }

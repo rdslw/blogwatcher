@@ -1,49 +1,22 @@
 # TODO (ideas and tasks)
 
-## Interest Classifier with LLM (added: 2026-03-24)
+## Example TODO item no 1 (added: 2026-03-26)
 
-Goal: add a separate LLM-based "interest" classification step for articles, distinct from summarization.
+## Blog Health / Structure Checks (added: 2026-03-27)
 
-High-level shape:
-- Run a dedicated LLM call for interest classification.
-- Use the article summary as the classifier input.
-- Persist the classification result in the database, similar to stored summaries.
-- Support three states: `prefer`, `normal`, `hide`.
-- Show the interest state as a tag next to each article in CLI output.
+Goal: detect blogs that may have become unhealthy, stale, or structurally incompatible with current tracking settings.
 
-Proposed user-facing flow:
-- Add a separate command, likely one of:
-  - `judge`
-  - `interest`
-  - `rank`
-  - `triage`
-- Revisit naming later; `interest` is the clearest working name for now.
-- Command should work for a single article or in batch, similarly to `summary`.
+Ideas:
+- Add a command or periodic check to verify tracked blogs are still healthy.
+- If `scrape_selector` is set, test whether it still matches usable article links and warn if the blog structure appears to have changed.
+- Detect stale blogs with no new posts for a configurable threshold, default idea: 365 days.
+- Make the stale threshold configurable in `config.toml`.
+- Check that the blog URL being used (main page and/or RSS URL) still resolves successfully.
+- Verify the URL fetch returns HTTP 200.
+- Verify the fetched response body length is greater than 1 KB.
 
-Config direction:
-- Add per-blog interest-classification rules to config.
-- Rules should be configurable either as:
-  - a custom prompt, or
-  - a structured checklist / rubric
-- Keep this per blog, so different blogs can define different notions of "interesting".
-
-Persistence direction:
-- Add article-level DB fields for:
-  - interest state
-  - optional explanation / reason
-  - optional timestamp for when interest was last judged
-- Treat this like summary caching: once judged, reuse until refreshed.
-
-CLI / UX ideas:
-- Show the interest state as a tag in `articles` output.
-- Consider also showing it in `summary`.
-- Later, allow filtering or prioritization by interest state:
-  - show preferred first
-  - hide `hide` items by default, or make that optional
-
-Open design questions for later:
-- Exact command name
-- Exact config shape for per-blog prompts/checklists
-- Whether to require an existing summary, or auto-generate one first if missing
-- Whether classifier output should include only the label, or also a short explanation
-- Whether `hide` should affect only display, or also default summary batching
+Open questions:
+- Whether this should be a dedicated command like `blogwatcher health` or part of `scan`.
+- Whether stale detection should use newest discovered article, newest published article, or last successful scan.
+- Whether the URL check should validate both main page and RSS URL when both exist.
+- How warnings should be surfaced in CLI output and whether to persist health-check results.

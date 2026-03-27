@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/interest"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/storage"
 	"github.com/rdslw/blogwatcher/internal/summarizer"
@@ -12,9 +15,13 @@ import (
 
 var (
 	summarizeArticleFn = summarizer.SummarizeArticle
+	classifyInterestFn = interest.ClassifySummary
 	openDatabaseFn     = storage.OpenDatabase
 	updateSummaryFn    = func(db *storage.Database, id int64, summary string, engine string) error {
 		return db.UpdateArticleSummary(id, summary, engine)
+	}
+	updateInterestFn = func(db *storage.Database, id int64, state string, reason string, engine string, judgedAt time.Time) error {
+		return db.UpdateArticleInterest(id, state, reason, engine, judgedAt)
 	}
 )
 
@@ -212,6 +219,15 @@ type SummaryResult struct {
 	Warning  string
 }
 
+type InterestResult struct {
+	Article  model.Article
+	BlogName string
+	Engine   string
+	Cached   bool
+	Skipped  bool
+	Note     string
+}
+
 func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive bool, refresh bool, opts summarizer.Options) (SummaryResult, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
@@ -364,6 +380,143 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 	return results, nil
 }
 
+func ClassifyArticleInterest(db *storage.Database, articleID int64, refresh bool, summaryRefresh bool, forceExtractive bool, summaryOpts summarizer.Options, interestCfg config.InterestConfig) (InterestResult, error) {
+	article, err := db.GetArticle(articleID)
+	if err != nil {
+		return InterestResult{}, err
+	}
+	if article == nil {
+		return InterestResult{}, ArticleNotFoundError{ID: articleID}
+	}
+
+	blog, err := db.GetBlog(article.BlogID)
+	if err != nil {
+		return InterestResult{}, err
+	}
+	blogName := ""
+	if blog != nil {
+		blogName = blog.Name
+	}
+
+	return classifyOne(db, *article, blogName, refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
+}
+
+func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig) ([]InterestResult, error) {
+	var blogID *int64
+	if blogName != "" {
+		blog, err := db.GetBlogByName(blogName)
+		if err != nil {
+			return nil, err
+		}
+		if blog == nil {
+			return nil, BlogNotFoundError{Name: blogName}
+		}
+		blogID = &blog.ID
+	}
+
+	articles, err := db.ListArticles(!showAll, blogID)
+	if err != nil {
+		return nil, err
+	}
+
+	blogs, err := db.ListBlogs()
+	if err != nil {
+		return nil, err
+	}
+	blogNames := make(map[int64]string)
+	for _, b := range blogs {
+		blogNames[b.ID] = b.Name
+	}
+
+	if limit > 0 {
+		articlesToClassify := 0
+		for _, article := range articles {
+			prompt := strings.TrimSpace(interestCfg.PromptForBlog(blogNames[article.BlogID]))
+			if prompt == "" {
+				continue
+			}
+			if refresh || summaryRefresh || article.InterestState == "" {
+				articlesToClassify++
+			}
+		}
+		if articlesToClassify > limit {
+			return nil, LimitExceededError{Limit: limit, Total: articlesToClassify}
+		}
+	}
+
+	results := make([]InterestResult, len(articles))
+
+	if workers <= 1 {
+		for i, article := range articles {
+			result, err := classifyOne(db, article, blogNames[article.BlogID], refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
+			if err != nil {
+				return nil, err
+			}
+			results[i] = result
+		}
+		return results, nil
+	}
+
+	type job struct {
+		Index    int
+		Article  model.Article
+		BlogName string
+	}
+	jobs := make(chan job, len(articles))
+
+	for i, article := range articles {
+		jobs <- job{Index: i, Article: article, BlogName: blogNames[article.BlogID]}
+	}
+	close(jobs)
+
+	var (
+		wg       sync.WaitGroup
+		firstErr error
+		errMu    sync.Mutex
+	)
+
+	setErr := func(err error) {
+		if err == nil {
+			return
+		}
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			workerDB, err := openDatabaseFn(db.Path())
+			if err != nil {
+				setErr(err)
+				return
+			}
+			defer workerDB.Close()
+
+			for item := range jobs {
+				result, err := classifyOne(workerDB, item.Article, item.BlogName, refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
+				if err != nil {
+					setErr(err)
+					continue
+				}
+				results[item.Index] = result
+			}
+		}()
+	}
+
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
+	return results, nil
+}
+
 func summarizeOne(db *storage.Database, article model.Article, blogName string, forceExtractive bool, refresh bool, opts summarizer.Options) (SummaryResult, error) {
 	cached := false
 	engine := article.SummaryEngine
@@ -402,6 +555,75 @@ func summarizeOne(db *storage.Database, article model.Article, blogName string, 
 		Engine:   engine,
 		Cached:   cached,
 	}, nil
+}
+
+func classifyOne(db *storage.Database, article model.Article, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, summaryOpts summarizer.Options, interestCfg config.InterestConfig) (InterestResult, error) {
+	engine := article.InterestEngine
+	if engine == "" {
+		engine = "unknown"
+	}
+	prompt := strings.TrimSpace(interestCfg.PromptForBlog(blogName))
+	if prompt == "" {
+		return InterestResult{
+			Article:  article,
+			BlogName: blogName,
+			Skipped:  true,
+			Note:     "No interest prompt configured; left unclassified.",
+		}, nil
+	}
+	if article.InterestState != "" && !refresh && !summaryRefresh {
+		return InterestResult{
+			Article:  article,
+			BlogName: blogName,
+			Engine:   engine,
+			Cached:   true,
+		}, nil
+	}
+
+	articleWithSummary, err := ensureArticleSummary(db, article, forceExtractive, summaryRefresh, summaryOpts)
+	if err != nil {
+		return InterestResult{}, err
+	}
+
+	result, err := classifyInterestFn(blogName, articleWithSummary.Summary, prompt, interest.OptionsFromConfig(interestCfg))
+	if err != nil {
+		return InterestResult{}, fmt.Errorf("failed to classify interest for article %d: %w", article.ID, err)
+	}
+
+	judgedAt := time.Now().UTC()
+	if err := updateInterestFn(db, article.ID, result.State, result.Reason, result.Engine, judgedAt); err != nil {
+		return InterestResult{}, fmt.Errorf("failed to cache interest for article %d: %w", article.ID, err)
+	}
+
+	articleWithSummary.InterestState = result.State
+	articleWithSummary.InterestReason = result.Reason
+	articleWithSummary.InterestEngine = result.Engine
+	articleWithSummary.InterestJudged = &judgedAt
+
+	return InterestResult{
+		Article:  articleWithSummary,
+		BlogName: blogName,
+		Engine:   result.Engine,
+		Cached:   false,
+	}, nil
+}
+
+func ensureArticleSummary(db *storage.Database, article model.Article, forceExtractive bool, refresh bool, opts summarizer.Options) (model.Article, error) {
+	if article.Summary != "" && !refresh {
+		return article, nil
+	}
+
+	result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
+	if err != nil {
+		return model.Article{}, fmt.Errorf("failed to summarize article %d before interest classification: %w", article.ID, err)
+	}
+	if err := updateSummaryFn(db, article.ID, result.Summary, result.Engine); err != nil {
+		return model.Article{}, fmt.Errorf("failed to cache summary for article %d: %w", article.ID, err)
+	}
+
+	article.Summary = result.Summary
+	article.SummaryEngine = result.Engine
+	return article, nil
 }
 
 func MarkArticleUnread(db *storage.Database, articleID int64) (model.Article, error) {

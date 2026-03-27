@@ -9,6 +9,7 @@ A Go CLI tool to track blog articles, detect new posts, and manage read/unread s
 -   **Read/Unread Management** - Track which articles you've read
 -   **Blog Filtering** - View articles from specific blogs
 -   **Article Summaries** - Generate and cache summaries with OpenAI or local fallback modes
+-   **Interest Classification** - Label articles as `prefer`, `normal`, or `hide` from their summaries
 -   **Duplicate Prevention** - Never tracks the same article twice
 -   **Colored CLI Output** - User-friendly terminal interface
 
@@ -89,6 +90,9 @@ blogwatcher articles --verbose
 
 # Show cached summaries alongside articles
 blogwatcher articles --summary
+
+# Interest tags appear inline once classified
+blogwatcher articles
 ```
 
 ### Summaries
@@ -110,6 +114,25 @@ blogwatcher summary --extractive
 blogwatcher summary --verbose
 ```
 
+### Interest Classification
+
+```bash
+# Classify unread articles
+blogwatcher interest
+
+# Classify one article
+blogwatcher interest 42
+
+# Re-classify existing labels
+blogwatcher interest --refresh
+
+# Rebuild summaries before classification
+blogwatcher interest --refresh-summary
+
+# Classify all articles for one blog
+blogwatcher interest --all --blog "Tech Blog"
+```
+
 ### Summary Configuration
 
 Create `~/.blogwatcher/config.toml`:
@@ -128,6 +151,57 @@ Use clear, informative language. Output only the summary text.
 Use the same language as the blog article.
 """
 ```
+
+### Interest Configuration
+
+Create `~/.blogwatcher/config.toml` with a default interest prompt and optional per-blog overrides:
+
+```toml
+[defaults]
+model = "gpt-5.4-nano"
+system_prompt = """
+You are classifying whether a blog article is worth prioritizing for the user.
+Return strict JSON with keys "state" and "reason".
+Allowed states are "prefer", "normal", and "hide".
+"""
+interest_prompt = """
+Prefer technical writeups with concrete details, benchmarks, architectural lessons,
+or clear implementation tradeoffs.
+Hide generic product launches, funding news, AI hot takes, and obvious marketing posts.
+"""
+```
+
+```toml
+# Optional per-blog override. If present, this replaces defaults.interest_prompt for that blog.
+[interest.blogs."Tech Blog"]
+interest_prompt = """
+Prefer compiler, databases, and distributed systems posts with benchmarks or implementation details.
+Hide generic AI hot takes, launch posts, hiring announcements, and broad opinion pieces.
+"""
+```
+
+Interest classification always uses the cached article summary as input. If a summary
+is missing, BlogWatcher generates and stores one first.
+
+`interest_prompt` is optional. If `config.toml` is empty or the field is omitted,
+BlogWatcher keeps `interest_prompt` empty and leaves articles unclassified, so no
+interest ranking is created unless you define either `defaults.interest_prompt` or a
+blog-specific override.
+
+Example `interest_prompt` you can start from:
+
+```toml
+[defaults]
+interest_prompt = """
+Prefer technical depth, clear new information, or unusually actionable insight.
+Hide low-signal announcements, generic marketing, repetitive posts, and generic launch news.
+"""
+```
+
+Prompt writing tips:
+
+- `prefer` examples: "Prefer posts with benchmarks, architecture diagrams, implementation details, incident writeups, or concrete tradeoff analysis."
+- `hide` examples: "Hide launch announcements, release notes without substance, marketing content, funding news, link roundups, and repetitive opinion posts."
 
 ### Managing Read Status
 
@@ -178,7 +252,7 @@ When RSS isn't available, provide a CSS selector that matches article links:
 BlogWatcher stores data in SQLite at `~/.blogwatcher/blogwatcher.db`:
 
 -   **blogs** - Tracked blogs (name, URL, feed URL, scrape selector)
--   **articles** - Discovered articles (title, URL, dates, read status, cached summaries, summary engine)
+-   **articles** - Discovered articles (title, URL, dates, read status, cached summaries, summary engine, cached interest state/reason)
 
 ## Development
 

@@ -487,11 +487,125 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	return cmd
 }
 
+func newInterestCommand() *cobra.Command {
+	var blogName string
+	var showAll bool
+	var refresh bool
+	var refreshSummary bool
+	var forceExtractive bool
+	var limit int
+	var workers int
+	var modelFlag string
+	var verbose bool
+
+	cmd := &cobra.Command{
+		Use:   "interest [article_id]",
+		Short: "Classify article interest using the cached summary.",
+		Long: `Classify article interest as prefer, normal, or hide.
+
+The classifier always uses the article summary as input. If a summary is missing,
+blogwatcher generates and caches one first.
+
+If defaults.interest_prompt and the per-blog override are both empty, articles are
+left unclassified and no interest ranking is stored.
+
+Example interest_prompt:
+
+  Prefer technical depth, clear new information, or unusually actionable insight.
+  Hide low-signal announcements, generic marketing, repetitive posts, and generic launch news.
+
+Configuration via ~/.blogwatcher/config.toml:
+
+  [defaults]
+  model = "gpt-5.4-nano"
+  system_prompt = "..."
+  interest_prompt = "Prefer systems posts with concrete benchmarks and hide generic launch posts."
+
+  [interest.blogs."Tech Blog"]
+  interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				printError(fmt.Errorf("config: %v", err))
+				return markError(err)
+			}
+
+			summaryOpts := summarizer.OptionsFromConfig(cfg.Summary)
+			interestCfg := cfg.Interest
+			if modelFlag != "" {
+				interestCfg.Model = modelFlag
+			}
+
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if len(args) == 1 {
+				articleID, err := parseID(args[0])
+				if err != nil {
+					return err
+				}
+				result, err := controller.ClassifyArticleInterest(db, articleID, refresh, refreshSummary, forceExtractive, summaryOpts, interestCfg)
+				if err != nil {
+					printError(err)
+					return markError(err)
+				}
+				printInterestResult(result, verbose)
+				return nil
+			}
+
+			results, err := controller.ClassifyArticlesInterest(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg)
+			if err != nil {
+				printError(err)
+				return markError(err)
+			}
+			if len(results) == 0 {
+				if showAll {
+					fmt.Println("No articles found.")
+				} else {
+					color.New(color.FgGreen).Println("No unread articles to classify!")
+				}
+				return nil
+			}
+
+			label := "Unread article interest"
+			if showAll {
+				label = "All article interest"
+			}
+			color.New(color.FgCyan, color.Bold).Printf("# %s (%d)\n\n", label, len(results))
+			for _, result := range results {
+				printInterestResult(result, verbose)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Classify all articles (including read)")
+	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-classify interest even if cached")
+	cmd.Flags().BoolVar(&refreshSummary, "refresh-summary", false, "Re-generate summaries before classification")
+	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback when generating missing summaries")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to classify (safety limit for LLM costs)")
+	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel classification")
+	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use for interest classification (overrides config)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show engine, cache, and timestamp metadata")
+	return cmd
+}
+
 func printSummaryResult(result controller.SummaryResult, verbose bool) {
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
 
 	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
 	fmt.Printf("- **Blog:** %s\n", result.BlogName)
+	if result.Article.InterestState != "" {
+		fmt.Printf("- **Interest:** %s\n", result.Article.InterestState)
+		if result.Article.InterestReason != "" {
+			fmt.Printf("- **Reason:** %s\n", result.Article.InterestReason)
+		}
+	}
 	if result.Article.PublishedDate != nil {
 		fmt.Printf("- **Published:** %s\n", result.Article.PublishedDate.Format("2006-01-02"))
 	}
@@ -510,6 +624,43 @@ func printSummaryResult(result controller.SummaryResult, verbose bool) {
 		fmt.Printf("- **Summary:** %s\n", result.Article.Summary)
 	} else {
 		color.New(color.FgYellow).Printf("- **Summary:** (failed to generate)\n")
+	}
+	fmt.Println()
+}
+
+func printInterestResult(result controller.InterestResult, verbose bool) {
+	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
+
+	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
+	fmt.Printf("- **Blog:** %s\n", result.BlogName)
+	if result.Skipped {
+		fmt.Printf("- **Interest:** (not classified)\n")
+		if result.Note != "" {
+			fmt.Printf("- **Note:** %s\n", result.Note)
+		}
+	} else {
+		fmt.Printf("- **Interest:** %s\n", result.Article.InterestState)
+	}
+	if result.Article.InterestReason != "" {
+		fmt.Printf("- **Reason:** %s\n", result.Article.InterestReason)
+	}
+	if result.Article.PublishedDate != nil {
+		fmt.Printf("- **Published:** %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+	}
+	if verbose {
+		classifierLabel := result.Engine
+		if result.Cached {
+			classifierLabel += " (cached)"
+		}
+		if classifierLabel != "" {
+			fmt.Printf("- **Classifier:** %s\n", classifierLabel)
+		}
+		if result.Article.InterestJudged != nil {
+			fmt.Printf("- **Judged:** %s\n", result.Article.InterestJudged.Format(time.RFC3339))
+		}
+		if result.Article.SummaryEngine != "" {
+			fmt.Printf("- **Summary Source:** %s\n", result.Article.SummaryEngine)
+		}
 	}
 	fmt.Println()
 }
@@ -542,7 +693,12 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 		status = color.New(color.FgHiBlack).Sprint("[read]")
 	}
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", article.ID)
-	fmt.Printf("  %s %s %s\n", idStr, status, article.Title)
+	interestTag := formatInterestTag(article.InterestState)
+	if interestTag != "" {
+		fmt.Printf("  %s %s %s %s\n", idStr, status, interestTag, article.Title)
+	} else {
+		fmt.Printf("  %s %s %s\n", idStr, status, article.Title)
+	}
 	fmt.Printf("       URL: %s\n", displayArticleURL(article.URL))
 	if verbose {
 		fmt.Printf("       Blog: %s\n", blogName)
@@ -560,10 +716,36 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 		}
 		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
 	}
+	if verbose && article.InterestState != "" {
+		classifierLabel := article.InterestEngine
+		if classifierLabel == "" {
+			classifierLabel = "unknown"
+		}
+		fmt.Printf("       Interest: %s (%s)\n", article.InterestState, classifierLabel)
+		if article.InterestReason != "" {
+			fmt.Printf("       Reason: %s\n", article.InterestReason)
+		}
+		if article.InterestJudged != nil {
+			fmt.Printf("       Judged: %s\n", article.InterestJudged.Format(time.RFC3339))
+		}
+	}
 	if showSummary && article.Summary != "" {
 		fmt.Printf("       Summary: %s\n", article.Summary)
 	}
 	fmt.Println()
+}
+
+func formatInterestTag(state string) string {
+	switch state {
+	case model.InterestStatePrefer:
+		return color.New(color.FgGreen, color.Bold).Sprint("[prefer]")
+	case model.InterestStateNormal:
+		return color.New(color.FgBlue).Sprint("[normal]")
+	case model.InterestStateHide:
+		return color.New(color.FgHiBlack).Sprint("[hide]")
+	default:
+		return ""
+	}
 }
 
 func displayArticleURL(rawURL string) string {

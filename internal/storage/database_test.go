@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -268,6 +269,54 @@ func TestArticleSummaryEngineRoundTrip(t *testing.T) {
 	}
 }
 
+func TestArticleInterestRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{
+		BlogID: blog.ID,
+		Title:  "Title",
+		URL:    "https://example.com/1",
+	})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	judgedAt := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+	if err := db.UpdateArticleInterest(article.ID, model.InterestStatePrefer, "High-signal post", "openai", judgedAt); err != nil {
+		t.Fatalf("update article interest: %v", err)
+	}
+
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched == nil {
+		t.Fatalf("expected article")
+	}
+	if fetched.InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected interest state round-trip, got %q", fetched.InterestState)
+	}
+	if fetched.InterestReason != "High-signal post" {
+		t.Fatalf("expected interest reason round-trip, got %q", fetched.InterestReason)
+	}
+	if fetched.InterestEngine != "openai" {
+		t.Fatalf("expected interest engine round-trip, got %q", fetched.InterestEngine)
+	}
+	if fetched.InterestJudged == nil || !fetched.InterestJudged.Equal(judgedAt) {
+		t.Fatalf("expected interest judged time round-trip")
+	}
+}
+
 func TestListArticlesFiltersAndOrdering(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")
@@ -408,5 +457,67 @@ func TestLookupHelpers(t *testing.T) {
 	}
 	if exists, err := db.ArticleExists("https://example.com/missing"); err != nil || exists {
 		t.Fatalf("expected missing article to not exist")
+	}
+}
+
+func TestOpenDatabaseMigratesOldArticlesSchema(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open raw database: %v", err)
+	}
+
+	schema := `
+		CREATE TABLE blogs (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			url TEXT NOT NULL UNIQUE,
+			feed_url TEXT,
+			scrape_selector TEXT,
+			last_scanned TIMESTAMP
+		);
+		CREATE TABLE articles (
+			id INTEGER PRIMARY KEY,
+			blog_id INTEGER NOT NULL,
+			title TEXT NOT NULL,
+			url TEXT NOT NULL UNIQUE,
+			published_date TIMESTAMP,
+			discovered_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			is_read BOOLEAN DEFAULT FALSE,
+			summary TEXT DEFAULT '',
+			summary_engine TEXT DEFAULT '',
+			FOREIGN KEY (blog_id) REFERENCES blogs(id)
+		);
+		INSERT INTO blogs (id, name, url) VALUES (1, 'Test', 'https://example.com');
+		INSERT INTO articles (id, blog_id, title, url, summary, summary_engine) VALUES (1, 1, 'Title', 'https://example.com/1', 'cached summary', 'openai');
+	`
+	if _, err := raw.Exec(schema); err != nil {
+		raw.Close()
+		t.Fatalf("seed old schema: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw database: %v", err)
+	}
+
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open migrated database: %v", err)
+	}
+	defer db.Close()
+
+	article, err := db.GetArticle(1)
+	if err != nil {
+		t.Fatalf("get migrated article: %v", err)
+	}
+	if article == nil {
+		t.Fatalf("expected migrated article")
+	}
+	if article.Summary != "cached summary" {
+		t.Fatalf("expected preserved summary, got %q", article.Summary)
+	}
+	if article.InterestState != "" || article.InterestReason != "" || article.InterestEngine != "" || article.InterestJudged != nil {
+		t.Fatalf("expected new interest fields to default empty after migration: %+v", article)
 	}
 }
