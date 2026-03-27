@@ -11,7 +11,7 @@ import (
 func NewRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "blogwatcher",
-		Short:         "BlogWatcher - Track blog articles and detect new posts.",
+		Short:         fmt.Sprintf("BlogWatcher %s - Track blog articles and detect new posts.", version.Version),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

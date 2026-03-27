@@ -2,6 +2,17 @@
 
 A Go CLI tool to track blog articles, detect new posts, and manage read/unread status. Supports both RSS/Atom feeds and HTML scraping as fallback.
 
+## Fork Notes
+
+This repository is the `rdslw` fork of the original [`Hyaxia/blogwatcher`](https://github.com/Hyaxia/blogwatcher).
+
+Short list of changes in this fork:
+
+- **Article summaries**: adds cached article summarization with OpenAI-backed and local extractive modes.
+- **Interest classification**: adds configurable `prefer` / `normal` / `hide` ranking driven by cached summaries.
+- **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
+- Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
+
 ## Features
 
 -   **Dual Source Support** - Tries RSS feeds first, falls back to HTML scraping
@@ -16,9 +27,6 @@ A Go CLI tool to track blog articles, detect new posts, and manage read/unread s
 ## Installation
 
 ```bash
-# Homebrew (Linux)
-brew install rdslw/tap/blogwatcher
-
 # Install the CLI
 go install github.com/rdslw/blogwatcher/cmd/blogwatcher@latest
 
@@ -29,7 +37,7 @@ go build ./cmd/blogwatcher
 make build
 ```
 
-Windows and Linux binaries are also available on the GitHub Releases page.
+Linux and macOS binaries are also available on the GitHub Releases page.
 
 ## Usage
 
@@ -280,10 +288,10 @@ make build
 make build-linux-amd64
 
 # Cross-compile the macOS Apple Silicon binary from Linux
-make build-macos-arm64
+make build-macos
 
 # Build both release artifacts into dist/
-make release-builds
+make release
 ```
 
 By default the build version is derived from `git describe`. You can override it explicitly when needed:
@@ -294,7 +302,7 @@ VERSION=v1.2.3 make build-macos-arm64
 
 ### Publishing
 
-in addition to publishing to main a new tag should be published so homebrew will get the updated version:
+Push a version tag to trigger the GoReleaser workflow on GitHub Actions:
 ```
   git tag vX.Y.Z
   git push origin vX.Y.Z

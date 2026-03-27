@@ -29,3 +29,6 @@ Thumbs.db
 
 # Database (local dev)
 *.db
+
+# Local scratch files
+tmp/
