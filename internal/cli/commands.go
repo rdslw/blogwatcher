@@ -632,7 +632,7 @@ func printInterestResult(result controller.InterestResult, verbose bool) {
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
 
 	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
-	fmt.Printf("- **Blog:** %s\n", result.BlogName)
+	fmt.Printf("- **URL:** %s\n", displayArticleURL(result.Article.URL))
 	if result.Skipped {
 		fmt.Printf("- **Interest:** (not classified)\n")
 		if result.Note != "" {
