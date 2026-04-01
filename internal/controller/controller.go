@@ -637,12 +637,12 @@ func classifyOne(db *storage.Database, article model.Article, blogName string, r
 
 	articleWithSummary, err := ensureArticleSummary(db, article, forceExtractive, summaryRefresh, summaryOpts)
 	if err != nil {
-		return InterestResult{}, err
+		return skippedInterestResult(article, blogName, engine, fmt.Sprintf("Failed to generate summary before interest classification: %v. Left unclassified.", err)), nil
 	}
 
 	result, err := classifyInterestFn(blogName, articleWithSummary.Summary, prompt, interest.OptionsFromConfig(interestCfg))
 	if err != nil {
-		return InterestResult{}, fmt.Errorf("failed to classify interest for article %d: %w", article.ID, err)
+		return skippedInterestResult(articleWithSummary, blogName, engine, fmt.Sprintf("Failed to classify interest: %v. Left unclassified.", err)), nil
 	}
 
 	judgedAt := time.Now().UTC()
@@ -661,6 +661,16 @@ func classifyOne(db *storage.Database, article model.Article, blogName string, r
 		Engine:   result.Engine,
 		Cached:   false,
 	}, nil
+}
+
+func skippedInterestResult(article model.Article, blogName string, engine string, note string) InterestResult {
+	return InterestResult{
+		Article:  article,
+		BlogName: blogName,
+		Engine:   engine,
+		Skipped:  true,
+		Note:     note,
+	}
 }
 
 func ensureArticleSummary(db *storage.Database, article model.Article, forceExtractive bool, refresh bool, opts summarizer.Options) (model.Article, error) {

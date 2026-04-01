@@ -417,7 +417,7 @@ func TestClassifyArticleInterestAutoGeneratesSummaryAndCachesResult(t *testing.T
 	}
 
 	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
-		Model:         "gpt-5.4-nano",
+		Model:          "gpt-5.4-nano",
 		InterestPrompt: "Default prompt",
 		Blogs: map[string]config.InterestBlogConfig{
 			"Tech Blog": {InterestPrompt: "Prefer compiler posts."},
@@ -636,6 +636,151 @@ func TestClassifyArticleInterestSkipsWhenPromptMissing(t *testing.T) {
 	}
 	if fetched.InterestState != "" || fetched.Summary != "" {
 		t.Fatalf("expected article to remain unclassified and unsummarized: %+v", fetched)
+	}
+}
+
+func TestClassifyArticleInterestSkipsWhenClassificationFails(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Tech Blog", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	originalClassify := classifyInterestFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+		classifyInterestFn = originalClassify
+	})
+
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		return summarizer.Result{Summary: "summary", Engine: summarizer.EngineSnippet}, nil
+	}
+	classifyInterestFn = func(string, string, string, interest.Options) (interest.Result, error) {
+		return interest.Result{}, errors.New("classifier unavailable")
+	}
+
+	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "Prefer technical posts.",
+	})
+	if err != nil {
+		t.Fatalf("classify article interest: %v", err)
+	}
+	if !result.Skipped {
+		t.Fatalf("expected classification to be skipped")
+	}
+	if !strings.Contains(result.Note, "classifier unavailable") {
+		t.Fatalf("expected classifier error in note, got %q", result.Note)
+	}
+
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched == nil {
+		t.Fatalf("expected fetched article")
+	}
+	if fetched.InterestState != "" {
+		t.Fatalf("expected article to remain unclassified: %+v", fetched)
+	}
+	if fetched.Summary != "summary" {
+		t.Fatalf("expected summary to stay cached, got %+v", fetched)
+	}
+}
+
+func TestClassifyArticlesInterestSkipsSummaryFailuresAndContinues(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Tech Blog", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	failingArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Failing", URL: "https://example.com/fail"})
+	if err != nil {
+		t.Fatalf("add failing article: %v", err)
+	}
+	okArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "OK", URL: "https://example.com/ok"})
+	if err != nil {
+		t.Fatalf("add ok article: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	originalClassify := classifyInterestFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+		classifyInterestFn = originalClassify
+	})
+
+	summarizeArticleFn = func(url string, _ bool, _ summarizer.Options) (summarizer.Result, error) {
+		if strings.Contains(url, "/fail") {
+			return summarizer.Result{}, errors.New("failed to fetch article https://example.com/fail: status 403")
+		}
+		return summarizer.Result{Summary: "working summary", Engine: summarizer.EngineSnippet}, nil
+	}
+	classifyInterestFn = func(blogName string, summary string, prompt string, opts interest.Options) (interest.Result, error) {
+		if summary != "working summary" {
+			t.Fatalf("unexpected summary %q", summary)
+		}
+		return interest.Result{State: model.InterestStatePrefer, Reason: "Useful", Engine: interest.EngineOpenAI}, nil
+	}
+
+	results, err := ClassifyArticlesInterest(db, false, "", false, false, false, 10, 1, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "Prefer technical posts.",
+	})
+	if err != nil {
+		t.Fatalf("classify articles interest: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	if results[0].Article.ID != failingArticle.ID {
+		t.Fatalf("expected first result for failing article, got %d", results[0].Article.ID)
+	}
+	if !results[0].Skipped {
+		t.Fatalf("expected first result to be skipped")
+	}
+	if !strings.Contains(results[0].Note, "status 403") {
+		t.Fatalf("expected fetch error note, got %q", results[0].Note)
+	}
+
+	if results[1].Article.ID != okArticle.ID {
+		t.Fatalf("expected second result for ok article, got %d", results[1].Article.ID)
+	}
+	if results[1].Skipped {
+		t.Fatalf("expected second result to be classified")
+	}
+	if results[1].Article.InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected prefer state, got %q", results[1].Article.InterestState)
+	}
+
+	failedFetched, err := db.GetArticle(failingArticle.ID)
+	if err != nil {
+		t.Fatalf("get failing article: %v", err)
+	}
+	if failedFetched == nil {
+		t.Fatalf("expected failing article")
+	}
+	if failedFetched.InterestState != "" {
+		t.Fatalf("expected failing article to remain unclassified: %+v", failedFetched)
+	}
+
+	okFetched, err := db.GetArticle(okArticle.ID)
+	if err != nil {
+		t.Fatalf("get ok article: %v", err)
+	}
+	if okFetched == nil {
+		t.Fatalf("expected ok article")
+	}
+	if okFetched.InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected ok article to be classified, got %+v", okFetched)
 	}
 }
 

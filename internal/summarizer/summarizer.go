@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	defaultTimeout    = 30 * time.Second
-	maxLocalChars     = 2000
-	verbatimWordLimit = 250
-	openAIAPIURL      = "https://api.openai.com/v1/chat/completions"
+	defaultTimeout     = 30 * time.Second
+	maxLocalChars      = 2000
+	verbatimWordLimit  = 250
+	openAIAPIURL       = "https://api.openai.com/v1/chat/completions"
+	articleFetchUA     = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+	articleFetchAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 )
 
 type Options struct {
@@ -94,13 +96,20 @@ func SummarizeArticle(articleURL string, forceExtractive bool, opts Options) (Re
 
 func fetchArticleText(articleURL string) (string, error) {
 	client := &http.Client{Timeout: defaultTimeout}
-	resp, err := client.Get(articleURL)
+	req, err := http.NewRequest(http.MethodGet, articleURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch article: %v", err)
+		return "", fmt.Errorf("failed to create article request for %s: %v", articleURL, err)
+	}
+	req.Header.Set("User-Agent", articleFetchUA)
+	req.Header.Set("Accept", articleFetchAccept)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch article %s: %v", articleURL, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("failed to fetch article: status %d", resp.StatusCode)
+		return "", fmt.Errorf("failed to fetch article %s: status %d", fetchErrorURL(articleURL, resp), resp.StatusCode)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
@@ -147,6 +156,18 @@ func fetchArticleText(articleURL string) (string, error) {
 		}
 	}
 	return strings.Join(cleaned, "\n"), nil
+}
+
+func fetchErrorURL(articleURL string, resp *http.Response) string {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return articleURL
+	}
+
+	finalURL := strings.TrimSpace(resp.Request.URL.String())
+	if finalURL == "" || finalURL == articleURL {
+		return articleURL
+	}
+	return fmt.Sprintf("%s (final URL %s)", articleURL, finalURL)
 }
 
 func extractPreferredContent(doc *goquery.Document) string {

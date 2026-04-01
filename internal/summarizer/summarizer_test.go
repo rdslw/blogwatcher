@@ -2,6 +2,8 @@ package summarizer
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +189,81 @@ func TestFetchArticleTextPrefersMainContentOverPageChrome(t *testing.T) {
 	}
 	if !strings.Contains(text, "First useful paragraph.") || !strings.Contains(text, "Second useful paragraph.") {
 		t.Fatalf("expected main content, got %q", text)
+	}
+}
+
+func TestFetchArticleTextUsesBrowserLikeHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != articleFetchUA {
+			t.Fatalf("expected user agent %q, got %q", articleFetchUA, got)
+		}
+		if got := r.Header.Get("Accept"); got != articleFetchAccept {
+			t.Fatalf("expected accept header %q, got %q", articleFetchAccept, got)
+		}
+		if strings.HasPrefix(r.Header.Get("User-Agent"), "Go-http-client/") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		_, _ = io.WriteString(w, "<html><body><article>Allowed content.</article></body></html>")
+	}))
+	defer server.Close()
+
+	text, err := fetchArticleText(server.URL)
+	if err != nil {
+		t.Fatalf("fetch article text: %v", err)
+	}
+	if !strings.Contains(text, "Allowed content.") {
+		t.Fatalf("expected article body, got %q", text)
+	}
+}
+
+func TestFetchArticleTextIncludesURLInStatusErrors(t *testing.T) {
+	for _, statusCode := range []int{http.StatusForbidden, http.StatusBadGateway} {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(statusCode)
+			}))
+			defer server.Close()
+
+			articleURL := server.URL + "/article"
+			_, err := fetchArticleText(articleURL)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), articleURL) {
+				t.Fatalf("expected error to include URL %q, got %q", articleURL, err)
+			}
+			if !strings.Contains(err.Error(), fmt.Sprintf("status %d", statusCode)) {
+				t.Fatalf("expected error to include status %d, got %q", statusCode, err)
+			}
+		})
+	}
+}
+
+func TestFetchArticleTextIncludesURLInTransportErrors(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	articleURL := "http://example.invalid/article"
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != articleURL {
+			return originalTransport.RoundTrip(req)
+		}
+		return nil, errors.New("dial failed")
+	})
+
+	_, err := fetchArticleText(articleURL)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), articleURL) {
+		t.Fatalf("expected error to include URL %q, got %q", articleURL, err)
+	}
+	if !strings.Contains(err.Error(), "dial failed") {
+		t.Fatalf("expected transport failure, got %q", err)
 	}
 }
 
