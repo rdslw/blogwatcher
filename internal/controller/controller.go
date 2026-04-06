@@ -238,7 +238,7 @@ func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, erro
 	return *article, nil
 }
 
-func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article, error) {
+func MarkArticlesReadByScope(db *storage.Database, blogName string, scope string) ([]model.Article, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -254,6 +254,16 @@ func MarkAllArticlesRead(db *storage.Database, blogName string) ([]model.Article
 	articles, err := db.ListArticles(true, blogID)
 	if err != nil {
 		return nil, err
+	}
+
+	if scope != "all" {
+		filtered := articles[:0:0]
+		for _, a := range articles {
+			if a.InterestState == scope {
+				filtered = append(filtered, a)
+			}
+		}
+		articles = filtered
 	}
 
 	for _, article := range articles {

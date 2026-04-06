@@ -308,89 +308,125 @@ The --filter flag controls interest-based filtering:
 }
 
 func newReadCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "read <article_id>",
-		Short: "Mark an article as read.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			articleID, err := parseID(args[0])
-			if err != nil {
-				return err
-			}
-			db, err := storage.OpenDatabase("")
-			if err != nil {
-				return err
-			}
-			defer db.Close()
-			article, err := controller.MarkArticleRead(db, articleID)
-			if err != nil {
-				printError(err)
-				return markError(err)
-			}
-			if article.IsRead {
-				fmt.Printf("Article %d is already marked as read.\n", articleID)
-			} else {
-				color.New(color.FgGreen).Printf("Marked article %d as read\n", articleID)
-			}
-			return nil
-		},
-	}
-	return cmd
-}
-
-func newReadAllCommand() *cobra.Command {
+	var scope string
 	var blogName string
 	var yes bool
 
 	cmd := &cobra.Command{
-		Use:   "read-all",
-		Short: "Mark all unread articles as read.",
+		Use:   "read [article_id ...]",
+		Short: "Mark articles as read by ID or by interest scope.",
+		Long: `Mark one or more articles as read by ID, or mark all unread articles
+matching an interest scope.
+
+Examples:
+  blogwatcher read 42
+  blogwatcher read 42 99 101
+  blogwatcher read --scope hide
+  blogwatcher read --scope all --blog "Tech Blog" --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if scope != "" && len(args) > 0 {
+				return fmt.Errorf("cannot combine --scope with article IDs")
+			}
+			if scope == "" && len(args) == 0 {
+				return fmt.Errorf("provide article IDs or use --scope")
+			}
+			if scope != "" && scope != "all" && scope != "hide" && scope != "normal" && scope != "prefer" {
+				return fmt.Errorf("invalid --scope value %q: must be hide, normal, prefer, or all", scope)
+			}
+
 			db, err := storage.OpenDatabase("")
 			if err != nil {
 				return err
 			}
 			defer db.Close()
 
-			articles, blogNames, err := controller.GetArticles(db, false, blogName, "all")
-			if err != nil {
-				printError(err)
-				return markError(err)
-			}
-			if len(articles) == 0 {
-				color.New(color.FgGreen).Println("No unread articles to mark as read.")
-				return nil
+			if scope != "" {
+				return readByScope(db, blogName, scope, yes)
 			}
 
-			if !yes {
-				scope := "all blogs"
-				if blogName != "" {
-					scope = fmt.Sprintf("from '%s'", blogName)
-				}
-				confirmed, err := confirm(fmt.Sprintf("Mark %d article(s) %s as read?", len(articles), scope))
+			for _, arg := range args {
+				articleID, err := parseID(arg)
 				if err != nil {
 					return err
 				}
-				if !confirmed {
-					return nil
+				article, err := controller.MarkArticleRead(db, articleID)
+				if err != nil {
+					printError(err)
+					return markError(err)
+				}
+				if article.IsRead {
+					fmt.Printf("Article %d is already marked as read.\n", articleID)
+				} else {
+					color.New(color.FgGreen).Printf("Marked article %d as read\n", articleID)
 				}
 			}
-
-			marked, err := controller.MarkAllArticlesRead(db, blogName)
-			if err != nil {
-				printError(err)
-				return markError(err)
-			}
-
-			_ = blogNames
-			color.New(color.FgGreen).Printf("Marked %d article(s) as read\n", len(marked))
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Only mark articles from this blog")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
+	cmd.Flags().StringVar(&scope, "scope", "", "Mark read by interest scope: hide, normal, prefer, all")
+	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Only mark articles from this blog (with --scope)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt (with --scope)")
 	return cmd
+}
+
+func readByScope(db *storage.Database, blogName string, scope string, yes bool) error {
+	articles, _, err := controller.GetArticles(db, false, blogName, "all")
+	if err != nil {
+		printError(err)
+		return markError(err)
+	}
+
+	// Filter by exact interest state match (scope != filterByInterest).
+	if scope != "all" {
+		var unclassified int
+		filtered := articles[:0:0]
+		for _, a := range articles {
+			if a.InterestState == scope {
+				filtered = append(filtered, a)
+			} else if a.InterestState == "" {
+				unclassified++
+			}
+		}
+		articles = filtered
+		if unclassified > 0 {
+			interestCmd := "blogwatcher interest"
+			if blogName != "" {
+				interestCmd += fmt.Sprintf(" --blog %q", blogName)
+			}
+			color.New(color.FgYellow).Fprintf(os.Stderr,
+				"Warning: %d unread article(s) have no interest classification and were skipped.\n"+
+					"Run: %s\n", unclassified, interestCmd)
+		}
+	}
+
+	if len(articles) == 0 {
+		color.New(color.FgGreen).Println("No matching unread articles to mark as read.")
+		return nil
+	}
+
+	if !yes {
+		desc := fmt.Sprintf("scope=%s", scope)
+		if blogName != "" {
+			desc += fmt.Sprintf(", blog='%s'", blogName)
+		}
+		confirmed, err := confirm(fmt.Sprintf("Mark %d article(s) (%s) as read?", len(articles), desc))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			return nil
+		}
+	}
+
+	marked, err := controller.MarkArticlesReadByScope(db, blogName, scope)
+	if err != nil {
+		printError(err)
+		return markError(err)
+	}
+
+	color.New(color.FgGreen).Printf("Marked %d article(s) as read\n", len(marked))
+	return nil
 }
 
 func newUnreadCommand() *cobra.Command {

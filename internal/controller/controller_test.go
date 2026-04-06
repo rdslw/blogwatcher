@@ -157,6 +157,103 @@ func TestGetArticlesInterestFilter(t *testing.T) {
 	}
 }
 
+func TestMarkArticlesReadByScope(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	for _, tc := range []struct {
+		title string
+		state string
+	}{
+		{"Preferred", model.InterestStatePrefer},
+		{"Normal", model.InterestStateNormal},
+		{"Hidden", model.InterestStateHide},
+		{"Unclassified", ""},
+	} {
+		a, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: tc.title, URL: "https://example.com/" + tc.title})
+		if err != nil {
+			t.Fatalf("add article: %v", err)
+		}
+		if tc.state != "" {
+			if err := db.UpdateArticleInterest(a.ID, tc.state, "test", "test", time.Now()); err != nil {
+				t.Fatalf("update interest: %v", err)
+			}
+		}
+	}
+
+	// scope=hide should mark only the hidden article
+	marked, err := MarkArticlesReadByScope(db, "", "hide")
+	if err != nil {
+		t.Fatalf("scope hide: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Title != "Hidden" {
+		t.Fatalf("expected 1 hidden article marked, got %d", len(marked))
+	}
+
+	// scope=prefer should mark only the preferred article
+	marked, err = MarkArticlesReadByScope(db, "", "prefer")
+	if err != nil {
+		t.Fatalf("scope prefer: %v", err)
+	}
+	if len(marked) != 1 || marked[0].Title != "Preferred" {
+		t.Fatalf("expected 1 preferred article marked, got %d", len(marked))
+	}
+
+	// scope=all should mark remaining unread (normal + unclassified)
+	marked, err = MarkArticlesReadByScope(db, "", "all")
+	if err != nil {
+		t.Fatalf("scope all: %v", err)
+	}
+	if len(marked) != 2 {
+		t.Fatalf("expected 2 remaining articles marked, got %d", len(marked))
+	}
+}
+
+func TestMarkArticlesReadByScopeWithBlog(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog1, err := AddBlog(db, "Blog1", "https://blog1.example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog1: %v", err)
+	}
+	blog2, err := AddBlog(db, "Blog2", "https://blog2.example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog2: %v", err)
+	}
+
+	for _, blogID := range []int64{blog1.ID, blog2.ID} {
+		a, err := db.AddArticle(model.Article{BlogID: blogID, Title: "Art", URL: fmt.Sprintf("https://example.com/%d", blogID)})
+		if err != nil {
+			t.Fatalf("add article: %v", err)
+		}
+		if err := db.UpdateArticleInterest(a.ID, model.InterestStateHide, "test", "test", time.Now()); err != nil {
+			t.Fatalf("update interest: %v", err)
+		}
+	}
+
+	marked, err := MarkArticlesReadByScope(db, "Blog1", "hide")
+	if err != nil {
+		t.Fatalf("scope hide blog1: %v", err)
+	}
+	if len(marked) != 1 {
+		t.Fatalf("expected 1 article from Blog1, got %d", len(marked))
+	}
+
+	// Blog2 article should still be unread
+	remaining, _, err := GetArticles(db, false, "Blog2", "all")
+	if err != nil {
+		t.Fatalf("get blog2 articles: %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("expected Blog2 article still unread, got %d", len(remaining))
+	}
+}
+
 func TestGetArticlesByIDs(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

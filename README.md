@@ -225,14 +225,23 @@ Prompt writing tips:
 # Mark an article as read (use article ID from articles list)
 blogwatcher read 42
 
+# Mark multiple articles as read
+blogwatcher read 42 99 101
+
 # Mark an article as unread
 blogwatcher unread 42
 
-# Mark all unread articles as read
-blogwatcher read-all
+# Mark all unread articles as read (by interest scope)
+blogwatcher read --scope all
 
-# Mark all unread articles as read for a blog (skip prompt)
-blogwatcher read-all --blog "Tech Blog" --yes
+# Mark all "hide" articles as read
+blogwatcher read --scope hide
+
+# Mark all "normal" articles as read for a blog (skip prompt)
+blogwatcher read --scope normal --blog "Tech Blog" --yes
+
+# Mark all "prefer" articles as read
+blogwatcher read --scope prefer
 ```
 
 ## How It Works
