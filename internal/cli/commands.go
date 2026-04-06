@@ -15,6 +15,7 @@ import (
 	"github.com/rdslw/blogwatcher/internal/controller"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/scanner"
+	"github.com/rdslw/blogwatcher/internal/skill"
 	"github.com/rdslw/blogwatcher/internal/storage"
 	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
@@ -845,6 +846,18 @@ func confirm(prompt string) (bool, error) {
 	}
 	response = strings.TrimSpace(strings.ToLower(response))
 	return response == "y" || response == "yes", nil
+}
+
+func newSkillCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "skill",
+		Short: "Print the blogwatcher skill document (for agentic systems).",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Print(skill.Content)
+			return nil
+		},
+	}
+	return cmd
 }
 
 func init() {

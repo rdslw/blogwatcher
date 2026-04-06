@@ -1,58 +1,181 @@
 ---
-name: blogwatcher-cli
-description: Use when managing or interacting with favorite blogs via the BlogWatcher CLI—adding/removing blogs, scanning for new posts, listing articles, marking read/unread, or modifying related CLI behavior, scanning, storage, and tests.
+name: blogwatcher
+description: Monitor blogs, websites and RSS/Atom feeds for new articles, summarize them with AI, and classify interest — using the blogwatcher CLI.
 ---
 
-# BlogWatcher CLI
+# blogwatcher — Blog & Feed Monitor
 
-## Quick Orientation
-- Use the Cobra entry point in `cmd/blogwatcher/main.go` and `internal/cli/`.
-- Route business logic through `internal/controller` and persistence through `internal/storage`.
-- Use scanning pipeline packages in `internal/scanner`, `internal/rss`, and `internal/scraper`.
-- Remember the default SQLite path is `~/.blogwatcher/blogwatcher.db` and is created on demand.
+Binary: `blogwatcher` (Go CLI, expected in PATH)
+Config: `~/.blogwatcher/config.toml`
+Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 
-## Run Commands
-- Run locally with `go run ./cmd/blogwatcher ...`.
-- Build with `go build ./cmd/blogwatcher`.
+## Commands
 
-## Change Workflow
-1. Add or adjust CLI commands in `internal/cli/commands.go` (Cobra options, arguments, output formatting).
-2. Put non-trivial logic in `internal/controller` so the CLI stays thin and testable.
-3. Update storage or schema in `internal/storage/database.go` and adjust model conversion in `internal/model` if needed.
-4. Modify scanning behavior in `internal/scanner` and its helpers (`internal/rss`, `internal/scraper`).
-5. Update or add tests under `internal/` or `cmd/` for every feature change or addition.
+| Command | Purpose |
+|---------|---------|
+| `blogwatcher scan` | Scan all blogs for new articles |
+| `blogwatcher scan <name>` | Scan a single blog |
+| `blogwatcher blogs` | List tracked blogs with URLs and last scan time |
+| `blogwatcher articles` | List unread articles |
+| `blogwatcher articles <id> [id...]` | Show specific articles by ID |
+| `blogwatcher articles --all` | All articles (including read) |
+| `blogwatcher articles --blog <name>` | Unread articles for one blog |
+| `blogwatcher articles --filter norm` | Hide `hide`-classified, show prefer+normal |
+| `blogwatcher articles --filter prefer` | Show only `prefer`-classified articles |
+| `blogwatcher articles -s` | Show cached summaries alongside articles |
+| `blogwatcher articles -v` | Show extra metadata (interest label, engine, timestamps) |
+| `blogwatcher read <id> [id...]` | Mark article(s) as read |
+| `blogwatcher read --scope hide` | Mark all hide-classified unread articles as read |
+| `blogwatcher read --scope all` | Mark all unread articles as read |
+| `blogwatcher unread <id>` | Mark article back to unread |
+| `blogwatcher summary [id]` | Summarize article(s) (AI or extractive fallback) |
+| `blogwatcher summary --all` | Summarize all articles including read |
+| `blogwatcher summary --refresh` | Re-generate even if cached |
+| `blogwatcher summary --extractive` | Force non-LLM snippet mode |
+| `blogwatcher interest [id]` | Classify article(s) as prefer/normal/hide |
+| `blogwatcher interest --all` | Classify all articles including read |
+| `blogwatcher interest --refresh` | Re-classify even if cached |
+| `blogwatcher add <name> <url>` | Add blog (auto-discovers RSS) |
+| `blogwatcher add <name> <url> --feed-url <rss>` | Add blog with explicit feed URL |
+| `blogwatcher add <name> <url> --scrape-selector <css>` | Add blog with HTML scraping |
+| `blogwatcher remove <name>` | Remove blog and its articles |
+| `blogwatcher export` | Export blog definitions as portable shell script |
+| `blogwatcher skill` | Print this skill document |
 
-## Test Guidance
-- Run tests with `go test ./...`.
-- If you add a feature, add tests and any necessary dummy data.
-- Keep tests focused on CLI behavior, controller logic, and scraper/RSS parsing outcomes.
+Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`
 
-## Output Conventions
-- Preserve user-friendly CLI output with colors and clear errors.
-- When listing posts available for reading, always include the link to each post in the output.
-- Keep `articles` default output compact; use `articles -v` for extra metadata such as blog name, discovered timestamp, and summarizer info.
-- Keep error handling consistent with existing exceptions (`BlogNotFoundError`, `BlogAlreadyExistsError`, `ArticleNotFoundError`).
+## Summary Pipeline
 
-### Example (posts available for reading)
-```text
-Unread articles (2):
+The `summary` command generates a short text summary for each article.
 
-  [12] [new] Understanding Click Contexts
-       URL: https://realpython.com/click-context/
-       Published: 2025-11-02
+**Flow:** fetch article HTML → strip boilerplate → extract main content → summarize via LLM (or snippet fallback).
 
-  [13] [new] Async IO in Practice
-       URL: https://testandcode.com/async-io-in-practice/
+- **Input:** article URL.
+- **Content extraction:** fetches the page, removes nav/header/footer/ads/popups, then scores candidate content blocks (preferring `.post-content`, `article`, etc.) to find the main text.
+- **Short articles** (under 250 words): stored verbatim, engine = `verbatim`.
+- **LLM mode** (default when API key is set): sends extracted text to OpenAI chat completions. Engine = `openai`.
+- **Snippet mode** (no API key, or `--extractive`): first ~2000 characters, truncated at sentence boundary. Engine = `snippet`.
+- **Fallback:** if LLM call fails, falls back to snippet automatically.
+- **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
+- **Cost control:** `--limit N` (default 50) caps how many articles are summarized per invocation. `--workers N` controls concurrency.
+
+### Summary Configuration
+
+```toml
+[summary]
+openai_api_key = "sk-..."       # or set OPENAI_API_KEY env var
+model = "gpt-5.4-nano"          # default model
+system_prompt = "..."            # custom summarizer prompt
+max_request_bytes = 40960        # max article text sent to LLM
 ```
 
-### Example (`articles -v`)
-```text
-Unread articles (1):
+## Interest Classification Pipeline
 
-  [12] [new] Understanding Click Contexts
-       URL: https://realpython.com/click-context/
-       Blog: Real Python
-       Published: 2025-11-02
-       Discovered: 2025-11-02 08:15
-       Summarizer: openai
+The `interest` command classifies each article as **prefer**, **normal**, or **hide** based on its summary.
+
+**Flow:** ensure summary exists → build prompt with blog name + classification policy + summary → LLM returns JSON `{"state": "...", "reason": "..."}`.
+
+- **Dependency:** interest classification always requires a summary. If missing, `interest` auto-generates one first.
+- **Labels:**
+  - `prefer` — high signal, surface to user
+  - `normal` — worth noting, not urgent
+  - `hide` — low signal, skip or auto-mark read
+- **Per-blog prompts:** each blog can have its own `interest_prompt` in config. Falls back to the global prompt. If no prompt exists for a blog, articles are left unclassified.
+- **Caching:** classification is stored in the database with a timestamp. Re-run with `--refresh` to reclassify.
+- **Output:** JSON parsed from LLM response. Invalid JSON or states are rejected and the article is left unclassified.
+
+### Interest Configuration
+
+```toml
+[interest]
+openai_api_key = "sk-..."
+model = "gpt-5.4-nano"
+system_prompt = "..."                # classifier system prompt (controls JSON output format)
+interest_prompt = "Prefer ..."       # global classification policy
+
+[interest.blogs."simonwillison"]
+interest_prompt = "Prefer LLM tooling and Datasette posts; hide generic link roundups."
+
+[interest.blogs."macrumors"]
+interest_prompt = "Prefer Apple hardware releases; hide accessory reviews and rumors."
 ```
+
+The `interest_prompt` is the user-facing classification policy — what matters to you. The `system_prompt` controls the LLM's output format and should rarely need changing.
+
+## Standard Workflow
+
+### 1. Scan for new articles
+
+```
+blogwatcher scan
+```
+
+Wait for completion. This fetches new articles from all tracked blogs via RSS/Atom or HTML scraping.
+
+### 2. Classify interest (auto-summarizes)
+
+```
+blogwatcher interest -v
+```
+
+This generates summaries for articles that lack one, then classifies all unread articles. The `-v` flag shows engine and cache metadata.
+
+### 3. Review articles
+
+```
+blogwatcher articles -f norm -v      # unread, excluding hide-classified
+blogwatcher articles -f prefer -v    # prefer-only
+blogwatcher articles -v -s           # unread with summaries
+blogwatcher articles -v -s 42 99     # specific articles with summaries
+```
+
+**IMPORTANT:** Always copy URLs exactly from `blogwatcher articles` output. Never reconstruct or guess URLs.
+
+### 4. Clean up
+
+```
+blogwatcher read --scope hide -y     # mark all hide-classified as read
+blogwatcher read 42 99               # mark specific articles as read
+```
+
+## Presenting Articles to Users
+
+Group articles by blog. Use interest labels and summaries for context.
+
+```
+📰 Blogwatcher — N new articles
+
+⭐ **blogname** (2 prefer, 1 normal):
+• [prefer] Article Title — https://example.com/...
+  Two-sentence summary from cached data.
+• [normal] Another Article — https://example.com/...
+  Summary here.
+
+**otherblog** (1 prefer):
+• [prefer] Some Post — https://other.com/...
+
+remaining-blogs — no updates.
+```
+
+- Add ⭐ prefix for blogs with prefer-classified articles.
+- Include published date and interest reason when relevant.
+- After presenting, leave articles as **unread** unless the user says otherwise.
+- When zero new articles: just say "no new articles" or equivalent.
+
+## Adding a New Blog
+
+1. Try: `blogwatcher add "<name>" "<url>"` — auto-discovers RSS/Atom feed.
+2. If no feed found, look for RSS links in the page source or try common paths (`/feed`, `/rss`, `/atom.xml`, `/feed.xml`).
+3. If still no feed, use HTML scraping: `blogwatcher add "<name>" "<url>" --scrape-selector "<css>"` — find a CSS selector matching article links on the blog's main page.
+4. Verify: `blogwatcher scan` then `blogwatcher articles --blog "<name>"`.
+5. Add an `[interest.blogs."<name>"]` entry to `~/.blogwatcher/config.toml` with a tailored interest prompt.
+
+## Notes
+
+- State is stored locally in `~/.blogwatcher/`.
+- Config at `~/.blogwatcher/config.toml` — `[summary]` and `[interest]` sections with per-blog overrides.
+- HTML scrape blogs need a CSS selector — may break if site redesigns. RSS blogs are more reliable.
+- `scan` is idempotent — safe to run multiple times.
+- `summary` and `interest` are idempotent but cost money on first run — avoid `--refresh` unless needed.
+- No built-in scheduling — run manually or set up a cron job.
+- Use `blogwatcher export` to back up blog definitions as a portable shell script.

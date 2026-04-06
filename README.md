@@ -21,6 +21,7 @@ Short list of changes in this fork:
 -   **Blog Filtering** - View articles from specific blogs
 -   **Article Summaries** - Generate and cache summaries with OpenAI or local fallback modes
 -   **Interest Classification** - Label articles as `prefer`, `normal`, or `hide` from their summaries
+-   **Skill Document** - Built-in `skill` command emits a machine-readable skill doc for agentic systems
 -   **Duplicate Prevention** - Never tracks the same article twice
 -   **Colored CLI Output** - User-friendly terminal interface
 
@@ -218,6 +219,17 @@ Prompt writing tips:
 
 - `prefer` examples: "Prefer posts with benchmarks, architecture diagrams, implementation details, incident writeups, or concrete tradeoff analysis."
 - `hide` examples: "Hide launch announcements, release notes without substance, marketing content, funding news, link roundups, and repetitive opinion posts."
+
+### Skill Document
+
+```bash
+# Print the built-in skill document (for agentic systems / LLM tools)
+blogwatcher skill
+```
+
+The skill document describes blogwatcher's commands, summary and interest pipelines,
+standard workflow, and presentation conventions — designed for consumption by AI agents.
+It is embedded in the binary at build time from `SKILL.md`.
 
 ### Managing Read Status
 

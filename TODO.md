@@ -1,15 +1,5 @@
 # TODO (ideas and tasks)
 
-## Update SKILL.md docs from elfka source (added: 2026-03-26)
-
-Goal: document the current summary flow, interest classification flow, and their end-to-end interaction in `SKILL.md`, using the elfka source as the reference input.
-
-Tasks:
-- Update `SKILL.md` with the summary pipeline: trigger points, inputs, outputs, caching, and configuration.
-- Document the interest classification pipeline: dependency on summaries, prompts, labels, refresh behavior, and blog-specific overrides.
-- Describe the full user flow connecting scan, summary generation, interest classification, and article review.
-- Cross-check the documentation against the elfka source before considering the task complete.
-
 ## Blog Health / Structure Checks (added: 2026-03-26)
 
 Goal: detect blogs that may have become unhealthy, stale, or structurally incompatible with current tracking settings.
