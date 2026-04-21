@@ -43,6 +43,7 @@ const (
 	EngineOpenAI   = "openai"
 	EngineSnippet  = "snippet"
 	EngineVerbatim = "verbatim"
+	EngineRSS      = "rss"
 )
 
 func OptionsFromConfig(cfg config.SummaryConfig) Options {
@@ -286,6 +287,48 @@ func summarizeSnippet(text string) string {
 
 func wordCount(text string) int {
 	return len(strings.Fields(text))
+}
+
+// StripHTMLTags parses HTML and extracts clean text. Plain text is returned trimmed.
+func StripHTMLTags(html string) string {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return strings.TrimSpace(html)
+	}
+	text := doc.Find("body").Text()
+	lines := strings.Split(text, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+}
+
+// TruncateText truncates text to maxChars runes, appending "[...]" if truncated.
+// The "[...]" marker is included in the total character count.
+// Tries to break at a sentence boundary (.!?) or word boundary (space).
+func TruncateText(text string, maxChars int) string {
+	if utf8.RuneCountInString(text) <= maxChars {
+		return text
+	}
+
+	const marker = "[...]"
+	markerLen := utf8.RuneCountInString(marker)
+	limit := maxChars - markerLen
+	if limit <= 0 {
+		return marker
+	}
+
+	truncated := string([]rune(text)[:limit])
+	if idx := strings.LastIndexAny(truncated, ".!?"); idx > 0 {
+		truncated = truncated[:idx+1]
+	} else if idx := strings.LastIndex(truncated, " "); idx > 0 {
+		truncated = truncated[:idx]
+	}
+	return truncated + marker
 }
 
 func truncateUTF8ToBytes(text string, maxBytes int) string {

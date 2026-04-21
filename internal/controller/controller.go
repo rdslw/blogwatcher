@@ -13,6 +13,12 @@ import (
 	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
 
+// rssSummaryMinChars is the minimum length for an RSS-sourced summary to be
+// considered sufficient. Shorter RSS descriptions (typical 1-2 sentence blurbs
+// from feeds like OpenAI or DeepMind) are treated as empty and auto-upgraded
+// to a full summary on the next summary or interest run — no --refresh needed.
+const rssSummaryMinChars = 500
+
 var (
 	summarizeArticleFn = summarizer.SummarizeArticle
 	classifyInterestFn = interest.ClassifySummary
@@ -24,6 +30,15 @@ var (
 		return db.UpdateArticleInterest(id, state, reason, engine, judgedAt)
 	}
 )
+
+// isRSSSummaryShort returns true when the article has an RSS-sourced summary
+// that is too short for reliable interest classification. Such summaries are
+// treated as empty by the summary and interest pipelines so they get
+// auto-upgraded to a full summary without requiring --refresh.
+func isRSSSummaryShort(article model.Article) bool {
+	return article.SummaryEngine == summarizer.EngineRSS &&
+		len([]rune(article.Summary)) < rssSummaryMinChars
+}
 
 type LimitExceededError struct {
 	Limit int
@@ -311,7 +326,7 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 		blogName = blog.Name
 	}
 
-	if article.Summary != "" && !refresh {
+	if article.Summary != "" && !refresh && !isRSSSummaryShort(*article) {
 		engine := article.SummaryEngine
 		if engine == "" {
 			engine = "unknown"
@@ -319,8 +334,17 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 		return SummaryResult{Article: *article, BlogName: blogName, Engine: engine, Cached: true}, nil
 	}
 
-	result, err := summarizer.SummarizeArticle(article.URL, forceExtractive, opts)
+	result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
 	if err != nil {
+		if article.Summary != "" && article.SummaryEngine == summarizer.EngineRSS {
+			return SummaryResult{
+				Article:  *article,
+				BlogName: blogName,
+				Engine:   article.SummaryEngine,
+				Cached:   true,
+				Warning:  fmt.Sprintf("Summarization failed: %v. Kept existing RSS summary.", err),
+			}, nil
+		}
 		return SummaryResult{}, fmt.Errorf("failed to summarize article %d: %v", articleID, err)
 	}
 
@@ -354,7 +378,7 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 	if limit > 0 {
 		articlesToSummarize := 0
 		for _, article := range articles {
-			if refresh || article.Summary == "" {
+			if refresh || article.Summary == "" || isRSSSummaryShort(article) {
 				articlesToSummarize++
 			}
 		}
@@ -588,11 +612,20 @@ func summarizeOne(db *storage.Database, article model.Article, blogName string, 
 	if engine == "" {
 		engine = "unknown"
 	}
-	if article.Summary != "" && !refresh {
+	if article.Summary != "" && !refresh && !isRSSSummaryShort(article) {
 		cached = true
 	} else {
 		result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
 		if err != nil {
+			if article.Summary != "" && article.SummaryEngine == summarizer.EngineRSS {
+				return SummaryResult{
+					Article:  article,
+					BlogName: blogName,
+					Engine:   engine,
+					Cached:   true,
+					Warning:  fmt.Sprintf("Summarization failed: %v. Kept existing RSS summary.", err),
+				}, nil
+			}
 			return SummaryResult{
 				Article:  article,
 				BlogName: blogName,
@@ -684,12 +717,15 @@ func skippedInterestResult(article model.Article, blogName string, engine string
 }
 
 func ensureArticleSummary(db *storage.Database, article model.Article, forceExtractive bool, refresh bool, opts summarizer.Options) (model.Article, error) {
-	if article.Summary != "" && !refresh {
+	if article.Summary != "" && !refresh && !isRSSSummaryShort(article) {
 		return article, nil
 	}
 
 	result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
 	if err != nil {
+		if article.Summary != "" && article.SummaryEngine == summarizer.EngineRSS {
+			return article, nil
+		}
 		return model.Article{}, fmt.Errorf("failed to summarize article %d before interest classification: %w", article.ID, err)
 	}
 	if err := updateSummaryFn(db, article.ID, result.Summary, result.Engine); err != nil {

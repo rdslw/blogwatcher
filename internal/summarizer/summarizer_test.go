@@ -422,3 +422,58 @@ func TestFetchArticleTextPrefersObligacjeContentExcerpt(t *testing.T) {
 		t.Fatalf("expected obligacje excerpt, got %q", text)
 	}
 }
+
+func TestStripHTMLTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain text", "hello world", "hello world"},
+		{"simple HTML", "<p>hello</p>", "hello"},
+		{"nested HTML", "<div><p>hello</p><p>world</p></div>", "helloworld"},
+		{"with links", `<p>Check <a href="https://example.com">this</a> out</p>`, "Check this out"},
+		{"empty", "", ""},
+		{"whitespace only HTML", "<p>  </p>", ""},
+		{"mixed content", `<div>First</div><br/><div>Second</div>`, "FirstSecond"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripHTMLTags(tc.input)
+			if got != tc.expected {
+				t.Fatalf("StripHTMLTags(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestTruncateText(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		max      int
+		contains string
+		exact    string
+	}{
+		{"short text unchanged", "hello", 100, "", "hello"},
+		{"exact limit unchanged", "hello", 5, "", "hello"},
+		{"truncates with marker", "hello world foo bar", 15, "[...]", ""},
+		{"marker at sentence", "First sentence. Second sentence.", 22, "[...]", "First sentence.[...]"},
+		{"very small limit", "hello world", 5, "[...]", "[...]"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := TruncateText(tc.text, tc.max)
+			if tc.exact != "" && got != tc.exact {
+				t.Fatalf("TruncateText(%q, %d) = %q, want %q", tc.text, tc.max, got, tc.exact)
+			}
+			if tc.contains != "" && !strings.Contains(got, tc.contains) {
+				t.Fatalf("TruncateText(%q, %d) = %q, want it to contain %q", tc.text, tc.max, got, tc.contains)
+			}
+			runes := []rune(got)
+			if len(runes) > tc.max {
+				t.Fatalf("TruncateText(%q, %d) = %q (%d runes), exceeds max", tc.text, tc.max, got, len(runes))
+			}
+		})
+	}
+}

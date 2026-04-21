@@ -16,6 +16,7 @@ Short list of changes in this fork:
 ## Features
 
 -   **Dual Source Support** - Tries RSS feeds first, falls back to HTML scraping
+-   **RSS Summaries** - Automatically pre-fills article summaries from RSS feed descriptions during scan
 -   **Automatic Feed Discovery** - Detects RSS/Atom URLs from blog homepages
 -   **Read/Unread Management** - Track which articles you've read
 -   **Blog Filtering** - View articles from specific blogs
@@ -128,6 +129,14 @@ blogwatcher summary --extractive
 
 # Show summarizer metadata
 blogwatcher summary --verbose
+```
+
+```bash
+# RSS summaries are pre-filled during scan.
+# Short ones (<500 chars) are auto-upgraded on the next summary/interest run.
+# Longer ones are treated as cached; use --refresh to upgrade them.
+# If upgrading fails (e.g. 403), the RSS summary is always preserved.
+blogwatcher summary --refresh
 ```
 
 ### Interest Classification
@@ -263,7 +272,7 @@ blogwatcher read --scope prefer
 1. For each tracked blog, BlogWatcher first attempts to parse the RSS/Atom feed
 2. If no feed URL is configured, it tries to auto-discover one from the blog homepage
 3. If RSS parsing fails and a `scrape_selector` is configured, it falls back to HTML scraping
-4. New articles are saved to the database as unread
+4. New articles are saved to the database as unread. If the RSS feed includes a description, it is stored as an initial summary (engine = "rss", up to 2000 characters)
 5. Already-tracked articles are skipped
 
 ### Feed Auto-Discovery

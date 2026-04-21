@@ -254,7 +254,7 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	stmt, err := _tx.Prepare(`INSERT INTO articles (blog_id, title, url, published_date, discovered_date, is_read) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, err := _tx.Prepare(`INSERT INTO articles (blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		_ = _tx.Rollback()
 		return 0, err
@@ -269,6 +269,8 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 			formatTimePtr(article.PublishedDate),
 			formatTimePtr(article.DiscoveredDate),
 			article.IsRead,
+			article.Summary,
+			article.SummaryEngine,
 		)
 		if err != nil {
 			_ = _tx.Rollback()

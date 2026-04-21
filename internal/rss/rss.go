@@ -15,6 +15,7 @@ import (
 type FeedArticle struct {
 	Title         string
 	URL           string
+	Description   string
 	PublishedDate *time.Time
 }
 
@@ -53,6 +54,7 @@ func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
 		articles = append(articles, FeedArticle{
 			Title:         title,
 			URL:           link,
+			Description:   strings.TrimSpace(item.Description),
 			PublishedDate: pickPublishedDate(item),
 		})
 	}

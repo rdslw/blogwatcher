@@ -8,6 +8,7 @@ import (
 	"github.com/rdslw/blogwatcher/internal/rss"
 	"github.com/rdslw/blogwatcher/internal/scraper"
 	"github.com/rdslw/blogwatcher/internal/storage"
+	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
 
 type ScanResult struct {
@@ -172,16 +173,23 @@ func ScanBlogByName(db *storage.Database, name string) (*ScanResult, error) {
 	return &result, nil
 }
 
+const rssSummaryMaxChars = 2000
+
 func convertFeedArticles(blogID int64, articles []rss.FeedArticle) []model.Article {
 	result := make([]model.Article, 0, len(articles))
 	for _, article := range articles {
-		result = append(result, model.Article{
+		a := model.Article{
 			BlogID:        blogID,
 			Title:         article.Title,
 			URL:           article.URL,
 			PublishedDate: article.PublishedDate,
 			IsRead:        false,
-		})
+		}
+		if desc := summarizer.StripHTMLTags(article.Description); desc != "" {
+			a.Summary = summarizer.TruncateText(desc, rssSummaryMaxChars)
+			a.SummaryEngine = summarizer.EngineRSS
+		}
+		result = append(result, a)
 	}
 	return result
 }

@@ -158,7 +158,7 @@ func newScanCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "scan [blog_name]",
-		Short: "Scan blogs for new articles.",
+		Short: "Scan blogs for new articles (pre-fills summaries from RSS descriptions).",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := storage.OpenDatabase("")
@@ -479,6 +479,14 @@ Otherwise, extracts the first ~2000 characters of article text (extractive mode)
 
 Without arguments, summarizes all unread articles. With an article ID, summarizes that specific article.
 Summaries are cached in the database for instant retrieval on repeat calls.
+
+RSS-sourced summaries: when articles are discovered via RSS/Atom feeds, blogwatcher
+automatically extracts the feed description and stores it as an initial summary
+(engine = "rss"). Short RSS descriptions (under 500 characters, typical of feeds
+like OpenAI or DeepMind) are automatically upgraded to full summaries on the next
+summary or interest run — no --refresh needed. Longer RSS summaries (500+ chars)
+are treated as cached and kept unless --refresh is used. If upgrading or refreshing
+fails (e.g. HTTP 403), the existing RSS summary is always preserved.
 
 Configuration via ~/.blogwatcher/config.toml:
 

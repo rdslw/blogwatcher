@@ -18,6 +18,7 @@ const sampleFeed = `<?xml version="1.0" encoding="UTF-8" ?>
 <item>
 <title>First</title>
 <link>https://example.com/1</link>
+<description>First article summary from RSS</description>
 </item>
 <item>
 <title>Second</title>
@@ -156,6 +157,50 @@ func TestScanBlogRespectsExistingArticles(t *testing.T) {
 	result := ScanBlog(db, blog)
 	if result.NewArticles != 1 {
 		t.Fatalf("expected 1 new article, got %d", result.NewArticles)
+	}
+}
+
+func TestScanBlogRSSStoresDescriptionAsSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	result := ScanBlog(db, blog)
+	if result.NewArticles != 2 {
+		t.Fatalf("expected 2 new articles, got %d", result.NewArticles)
+	}
+
+	articles, err := db.ListArticles(false, nil)
+	if err != nil {
+		t.Fatalf("list articles: %v", err)
+	}
+
+	var withSummary, withoutSummary int
+	for _, article := range articles {
+		if article.Summary != "" && article.SummaryEngine == "rss" {
+			withSummary++
+			if article.Summary != "First article summary from RSS" {
+				t.Fatalf("expected RSS description as summary, got %q", article.Summary)
+			}
+		} else if article.Summary == "" {
+			withoutSummary++
+		}
+	}
+	if withSummary != 1 {
+		t.Fatalf("expected 1 article with RSS summary, got %d", withSummary)
+	}
+	if withoutSummary != 1 {
+		t.Fatalf("expected 1 article without summary, got %d", withoutSummary)
 	}
 }
 

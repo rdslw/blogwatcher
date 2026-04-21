@@ -881,6 +881,285 @@ func TestClassifyArticlesInterestSkipsSummaryFailuresAndContinues(t *testing.T) 
 	}
 }
 
+func TestSummarizeArticlePreservesRSSSummaryOnFailure(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	rssSummary := longRSSSummary(600)
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, rssSummary, summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
+	}
+
+	result, err := SummarizeArticle(db, article.ID, false, true, summarizer.Options{})
+	if err != nil {
+		t.Fatalf("summarize article: %v", err)
+	}
+	if result.Article.Summary != rssSummary {
+		t.Fatalf("expected RSS summary preserved")
+	}
+	if result.Article.SummaryEngine != summarizer.EngineRSS {
+		t.Fatalf("expected rss engine preserved, got %q", result.Article.SummaryEngine)
+	}
+	if result.Warning == "" {
+		t.Fatalf("expected warning about failed summarization")
+	}
+	if !result.Cached {
+		t.Fatalf("expected cached=true when falling back to RSS summary")
+	}
+}
+
+func TestSummarizeArticlesPreservesRSSSummaryOnFailure(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	rssSummary := longRSSSummary(600)
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, rssSummary, summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, true, 10, 1, summarizer.Options{})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Article.Summary != rssSummary {
+		t.Fatalf("expected RSS summary preserved")
+	}
+	if results[0].Warning == "" {
+		t.Fatalf("expected warning about failed summarization")
+	}
+
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched.Summary != rssSummary {
+		t.Fatalf("expected RSS summary in DB preserved")
+	}
+	if fetched.SummaryEngine != summarizer.EngineRSS {
+		t.Fatalf("expected rss engine in DB preserved, got %q", fetched.SummaryEngine)
+	}
+}
+
+func TestSummarizeArticleLongRSSTreatedAsCached(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	rssSummary := longRSSSummary(600)
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, rssSummary, summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		t.Fatalf("should not be called — long RSS summary should be treated as cached")
+		return summarizer.Result{}, nil
+	}
+
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	if err != nil {
+		t.Fatalf("summarize article: %v", err)
+	}
+	if !result.Cached {
+		t.Fatalf("expected cached=true for long RSS summary without --refresh")
+	}
+	if result.Article.Summary != rssSummary {
+		t.Fatalf("expected RSS summary preserved")
+	}
+}
+
+func TestSummarizeArticleShortRSSAutoUpgraded(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "Short RSS blurb.", summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	upgraded := false
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		upgraded = true
+		return summarizer.Result{Summary: "Full LLM summary of the article.", Engine: summarizer.EngineOpenAI}, nil
+	}
+
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	if err != nil {
+		t.Fatalf("summarize article: %v", err)
+	}
+	if !upgraded {
+		t.Fatalf("expected short RSS summary to trigger re-summarization")
+	}
+	if result.Cached {
+		t.Fatalf("expected cached=false for upgraded summary")
+	}
+	if result.Article.Summary != "Full LLM summary of the article." {
+		t.Fatalf("expected upgraded summary, got %q", result.Article.Summary)
+	}
+	if result.Article.SummaryEngine != summarizer.EngineOpenAI {
+		t.Fatalf("expected openai engine, got %q", result.Article.SummaryEngine)
+	}
+}
+
+func TestSummarizeArticleShortRSSPreservedOnFailure(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "Short RSS blurb.", summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
+	}
+
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	if err != nil {
+		t.Fatalf("summarize article: %v", err)
+	}
+	if result.Article.Summary != "Short RSS blurb." {
+		t.Fatalf("expected short RSS summary preserved on failure, got %q", result.Article.Summary)
+	}
+	if result.Warning == "" {
+		t.Fatalf("expected warning about failed summarization")
+	}
+}
+
+func TestClassifyInterestAutoUpgradesShortRSSSummary(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Tech Blog", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "Short RSS blurb.", summarizer.EngineRSS); err != nil {
+		t.Fatalf("cache rss summary: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	originalClassify := classifyInterestFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+		classifyInterestFn = originalClassify
+	})
+
+	summarizeCalls := 0
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		summarizeCalls++
+		return summarizer.Result{Summary: "Upgraded full summary.", Engine: summarizer.EngineOpenAI}, nil
+	}
+	classifyInterestFn = func(blogName string, summary string, prompt string, opts interest.Options) (interest.Result, error) {
+		if summary != "Upgraded full summary." {
+			t.Fatalf("expected upgraded summary for classification, got %q", summary)
+		}
+		return interest.Result{State: model.InterestStatePrefer, Reason: "Good stuff", Engine: interest.EngineOpenAI}, nil
+	}
+
+	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "Prefer technical posts.",
+	})
+	if err != nil {
+		t.Fatalf("classify article interest: %v", err)
+	}
+	if summarizeCalls != 1 {
+		t.Fatalf("expected short RSS to trigger summarization, got %d calls", summarizeCalls)
+	}
+	if result.Article.InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected prefer state, got %q", result.Article.InterestState)
+	}
+}
+
+// longRSSSummary returns a string of exactly n characters for testing RSS summary length thresholds.
+func longRSSSummary(n int) string {
+	base := "This is a detailed RSS feed description with enough content to be useful for interest classification. "
+	var b strings.Builder
+	for b.Len() < n {
+		b.WriteString(base)
+	}
+	return b.String()[:n]
+}
+
 func openTestDB(t *testing.T) *storage.Database {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "blogwatcher.db")

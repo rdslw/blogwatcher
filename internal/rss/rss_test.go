@@ -14,6 +14,7 @@ const sampleFeed = `<?xml version="1.0" encoding="UTF-8" ?>
 <item>
 <title>First</title>
 <link>https://example.com/1</link>
+<description>First article summary</description>
 <pubDate>Mon, 02 Jan 2006 15:04:05 GMT</pubDate>
 </item>
 <item>
@@ -61,5 +62,27 @@ func TestDiscoverFeedURL(t *testing.T) {
 	}
 	if feedURL == "" {
 		t.Fatalf("expected feed url")
+	}
+}
+
+func TestParseFeedExtractsDescription(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	articles, err := ParseFeed(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatalf("parse feed: %v", err)
+	}
+	if len(articles) != 2 {
+		t.Fatalf("expected 2 articles, got %d", len(articles))
+	}
+	if articles[0].Description != "First article summary" {
+		t.Fatalf("expected description, got %q", articles[0].Description)
+	}
+	if articles[1].Description != "" {
+		t.Fatalf("expected empty description for second article, got %q", articles[1].Description)
 	}
 }

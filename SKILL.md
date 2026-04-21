@@ -57,6 +57,7 @@ The `summary` command generates a short text summary for each article.
 - **Snippet mode** (no API key, or `--extractive`): first ~2000 characters, truncated at sentence boundary. Engine = `snippet`.
 - **Fallback:** if LLM call fails, falls back to snippet automatically.
 - **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
+- **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is stripped of HTML and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
 - **Cost control:** `--limit N` (default 50) caps how many articles are summarized per invocation. `--workers N` controls concurrency.
 
 ### Summary Configuration
@@ -110,7 +111,7 @@ The `interest_prompt` is the user-facing classification policy — what matters 
 blogwatcher scan
 ```
 
-Wait for completion. This fetches new articles from all tracked blogs via RSS/Atom or HTML scraping.
+Wait for completion. This fetches new articles from all tracked blogs via RSS/Atom or HTML scraping. RSS feed descriptions are automatically stored as initial summaries.
 
 ### 2. Classify interest (auto-summarizes)
 
