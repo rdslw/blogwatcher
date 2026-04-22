@@ -349,10 +349,12 @@ VERSION=v1.2.3 make build-macos-arm64
 
 ### Publishing
 
-Push a version tag to trigger the GoReleaser workflow on GitHub Actions:
+To publish a release:
 ```
+  # Update internal/version/version.go to the release version
+  git commit -m "ver: release vX.Y.Z" -- internal/version/version.go
   git tag vX.Y.Z
-  git push origin vX.Y.Z
+  git push origin main vX.Y.Z
 ```
 
 ## License
