@@ -102,11 +102,14 @@ blogwatcher articles 42 99
 blogwatcher articles --filter norm
 blogwatcher articles -f prefer
 
-# Show extra article metadata
+# Show blog, engine, summary size, and timestamp metadata
 blogwatcher articles --verbose
 
-# Show cached summaries alongside articles
+# Show cached summary text alongside articles
 blogwatcher articles --summary
+
+# Combine verbose metadata with summary text
+blogwatcher articles -v -s
 
 # Interest tags appear inline once classified
 blogwatcher articles
@@ -127,7 +130,7 @@ blogwatcher summary --refresh
 # Force local non-LLM summarization
 blogwatcher summary --extractive
 
-# Show summarizer metadata
+# Show blog, engine, and summary size metadata
 blogwatcher summary --verbose
 ```
 
@@ -156,6 +159,12 @@ blogwatcher interest --refresh-summary
 
 # Classify all articles for one blog
 blogwatcher interest --all --blog "Tech Blog"
+
+# Show cached summary text alongside interest results
+blogwatcher interest --summary
+
+# Show blog, engine, summary size, and timestamp metadata
+blogwatcher interest --verbose
 ```
 
 ### Summary Configuration

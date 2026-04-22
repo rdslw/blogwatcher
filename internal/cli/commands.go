@@ -302,8 +302,8 @@ The --filter flag controls interest-based filtering:
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
-	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summaries alongside articles")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show extra article metadata")
+	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside articles")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().StringVarP(&interestFilter, "filter", "f", "all", "Interest filter: all, norm, prefer")
 	return cmd
 }
@@ -548,7 +548,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				if showAll {
 					label = "All article summaries"
 				}
-				color.New(color.FgCyan, color.Bold).Printf("# %s (%d)\n\n", label, len(results))
+				color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(results))
 				for _, result := range results {
 					printSummaryResult(result, verbose)
 				}
@@ -564,7 +564,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to summarize (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel summarization")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show engine and cache metadata")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
 	return cmd
 }
 
@@ -578,6 +578,7 @@ func newInterestCommand() *cobra.Command {
 	var workers int
 	var modelFlag string
 	var verbose bool
+	var showSummary bool
 
 	cmd := &cobra.Command{
 		Use:   "interest [article_id]",
@@ -634,7 +635,7 @@ Configuration via ~/.blogwatcher/config.toml:
 					printError(err)
 					return markError(err)
 				}
-				printInterestResult(result, verbose)
+				printInterestResult(result, verbose, showSummary)
 				return nil
 			}
 
@@ -656,9 +657,9 @@ Configuration via ~/.blogwatcher/config.toml:
 			if showAll {
 				label = "All article interest"
 			}
-			color.New(color.FgCyan, color.Bold).Printf("# %s (%d)\n\n", label, len(results))
+			color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", label, len(results))
 			for _, result := range results {
-				printInterestResult(result, verbose)
+				printInterestResult(result, verbose, showSummary)
 			}
 			return nil
 		},
@@ -672,61 +673,79 @@ Configuration via ~/.blogwatcher/config.toml:
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to classify (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel classification")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use for interest classification (overrides config)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show engine, cache, and timestamp metadata")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
+	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
 	return cmd
 }
 
 func printSummaryResult(result controller.SummaryResult, verbose bool) {
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
+	interestTag := formatInterestTag(result.Article.InterestState)
 
-	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
-	fmt.Printf("- **Blog:** %s\n", result.BlogName)
-	if result.Article.InterestState != "" {
-		fmt.Printf("- **Interest:** %s\n", result.Article.InterestState)
-		if result.Article.InterestReason != "" {
-			fmt.Printf("- **Reason:** %s\n", result.Article.InterestReason)
-		}
-	}
-	if result.Article.PublishedDate != nil {
-		fmt.Printf("- **Published:** %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+	if interestTag != "" {
+		fmt.Printf("  %s %s %s\n", idStr, interestTag, result.Article.Title)
+	} else {
+		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
 	}
 	if verbose {
-		summarizerLabel := result.Engine
-		if result.Cached {
-			summarizerLabel += " (cached)"
-		}
-		fmt.Printf("- **Summarizer:** %s\n", summarizerLabel)
+		fmt.Printf("       Blog: %s\n", result.BlogName)
+	}
+	fmt.Printf("       URL: %s\n", displayArticleURL(result.Article.URL))
+	if result.Article.PublishedDate != nil {
+		fmt.Printf("       Published: %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+	}
+	if result.Article.InterestReason != "" {
+		fmt.Printf("       Reason: %s\n", result.Article.InterestReason)
 	}
 	if result.Warning != "" {
-		color.New(color.FgYellow).Printf("- **Note:** %s\n", result.Warning)
+		color.New(color.FgYellow).Printf("       Note: %s\n", result.Warning)
 	}
-
+	summarizerLabel := result.Engine
+	if result.Cached {
+		summarizerLabel += " (cached)"
+	}
+	if verbose {
+		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
+	}
+	if verbose && result.Article.Summary != "" {
+		chars := len(result.Article.Summary)
+		words := len(strings.Fields(result.Article.Summary))
+		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
+	}
 	if result.Article.Summary != "" {
-		fmt.Printf("- **Summary:** %s\n", result.Article.Summary)
+		fmt.Printf("       Summary: %s\n", result.Article.Summary)
 	} else {
-		color.New(color.FgYellow).Printf("- **Summary:** (failed to generate)\n")
+		color.New(color.FgYellow).Printf("       Summary: (failed to generate)\n")
 	}
 	fmt.Println()
 }
 
-func printInterestResult(result controller.InterestResult, verbose bool) {
+func printInterestResult(result controller.InterestResult, verbose bool, showSummary bool) {
 	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
+	interestTag := formatInterestTag(result.Article.InterestState)
 
-	fmt.Printf("## %s %s\n", idStr, result.Article.Title)
-	fmt.Printf("- **URL:** %s\n", displayArticleURL(result.Article.URL))
 	if result.Skipped {
-		fmt.Printf("- **Interest:** (not classified)\n")
-		if result.Note != "" {
-			fmt.Printf("- **Note:** %s\n", result.Note)
-		}
+		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
+	} else if interestTag != "" {
+		fmt.Printf("  %s %s %s\n", idStr, interestTag, result.Article.Title)
 	} else {
-		fmt.Printf("- **Interest:** %s\n", result.Article.InterestState)
+		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
+	}
+	if verbose {
+		fmt.Printf("       Blog: %s\n", result.BlogName)
+	}
+	fmt.Printf("       URL: %s\n", displayArticleURL(result.Article.URL))
+	if result.Article.PublishedDate != nil {
+		fmt.Printf("       Published: %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+	}
+	if result.Skipped {
+		fmt.Printf("       Interest: (not classified)\n")
+		if result.Note != "" {
+			color.New(color.FgYellow).Printf("       Note: %s\n", result.Note)
+		}
 	}
 	if result.Article.InterestReason != "" {
-		fmt.Printf("- **Reason:** %s\n", result.Article.InterestReason)
-	}
-	if result.Article.PublishedDate != nil {
-		fmt.Printf("- **Published:** %s\n", result.Article.PublishedDate.Format("2006-01-02"))
+		fmt.Printf("       Reason: %s\n", result.Article.InterestReason)
 	}
 	if verbose {
 		classifierLabel := result.Engine
@@ -734,14 +753,22 @@ func printInterestResult(result controller.InterestResult, verbose bool) {
 			classifierLabel += " (cached)"
 		}
 		if classifierLabel != "" {
-			fmt.Printf("- **Classifier:** %s\n", classifierLabel)
+			fmt.Printf("       Classifier: %s\n", classifierLabel)
 		}
 		if result.Article.InterestJudged != nil {
-			fmt.Printf("- **Judged:** %s\n", result.Article.InterestJudged.Format(time.RFC3339))
+			fmt.Printf("       Judged: %s\n", result.Article.InterestJudged.Format(time.RFC3339))
 		}
-		if result.Article.SummaryEngine != "" {
-			fmt.Printf("- **Summary Source:** %s\n", result.Article.SummaryEngine)
-		}
+	}
+	if verbose && result.Article.SummaryEngine != "" {
+		fmt.Printf("       Summarizer: %s\n", result.Article.SummaryEngine)
+	}
+	if verbose && result.Article.Summary != "" {
+		chars := len(result.Article.Summary)
+		words := len(strings.Fields(result.Article.Summary))
+		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
+	}
+	if showSummary && result.Article.Summary != "" {
+		fmt.Printf("       Summary: %s\n", result.Article.Summary)
 	}
 	fmt.Println()
 }
@@ -780,22 +807,15 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 	} else {
 		fmt.Printf("  %s %s %s\n", idStr, status, article.Title)
 	}
-	fmt.Printf("       URL: %s\n", displayArticleURL(article.URL))
 	if verbose {
 		fmt.Printf("       Blog: %s\n", blogName)
 	}
+	fmt.Printf("       URL: %s\n", displayArticleURL(article.URL))
 	if article.PublishedDate != nil {
 		fmt.Printf("       Published: %s\n", article.PublishedDate.Format("2006-01-02"))
 	}
 	if verbose && article.DiscoveredDate != nil {
 		fmt.Printf("       Discovered: %s\n", article.DiscoveredDate.Format("2006-01-02 15:04"))
-	}
-	if verbose && article.Summary != "" {
-		summarizerLabel := article.SummaryEngine
-		if summarizerLabel == "" {
-			summarizerLabel = "unknown"
-		}
-		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
 	}
 	if verbose && article.InterestState != "" {
 		classifierLabel := article.InterestEngine
@@ -809,6 +829,16 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 		if article.InterestJudged != nil {
 			fmt.Printf("       Judged: %s\n", article.InterestJudged.Format(time.RFC3339))
 		}
+	}
+	if verbose && article.Summary != "" {
+		summarizerLabel := article.SummaryEngine
+		if summarizerLabel == "" {
+			summarizerLabel = "unknown"
+		}
+		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
+		chars := len(article.Summary)
+		words := len(strings.Fields(article.Summary))
+		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
 	}
 	if showSummary && article.Summary != "" {
 		fmt.Printf("       Summary: %s\n", article.Summary)

@@ -22,8 +22,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher articles --blog <name>` | Unread articles for one blog |
 | `blogwatcher articles --filter norm` | Hide `hide`-classified, show prefer+normal |
 | `blogwatcher articles --filter prefer` | Show only `prefer`-classified articles |
-| `blogwatcher articles -s` | Show cached summaries alongside articles |
-| `blogwatcher articles -v` | Show extra metadata (interest label, engine, timestamps) |
+| `blogwatcher articles -s` | Show cached summary text alongside articles |
+| `blogwatcher articles -v` | Show blog, engine, summary size, and timestamp metadata |
 | `blogwatcher read <id> [id...]` | Mark article(s) as read |
 | `blogwatcher read --scope hide` | Mark all hide-classified unread articles as read |
 | `blogwatcher read --scope all` | Mark all unread articles as read |
@@ -35,6 +35,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher interest [id]` | Classify article(s) as prefer/normal/hide |
 | `blogwatcher interest --all` | Classify all articles including read |
 | `blogwatcher interest --refresh` | Re-classify even if cached |
+| `blogwatcher interest -s` | Show cached summary text alongside interest results |
+| `blogwatcher interest -v` | Show blog, engine, summary size, and timestamp metadata |
 | `blogwatcher add <name> <url>` | Add blog (auto-discovers RSS) |
 | `blogwatcher add <name> <url> --feed-url <rss>` | Add blog with explicit feed URL |
 | `blogwatcher add <name> <url> --scrape-selector <css>` | Add blog with HTML scraping |
@@ -43,6 +45,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher skill` | Print this skill document |
 
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`
+Common flags for `articles` and `interest`: `--summary` (show cached summary text)
 
 ## Summary Pipeline
 
@@ -128,6 +131,7 @@ blogwatcher articles -f norm -v      # unread, excluding hide-classified
 blogwatcher articles -f prefer -v    # prefer-only
 blogwatcher articles -v -s           # unread with summaries
 blogwatcher articles -v -s 42 99     # specific articles with summaries
+blogwatcher interest -v -s           # interest results with summary text
 ```
 
 **IMPORTANT:** Always copy URLs exactly from `blogwatcher articles` output. Never reconstruct or guess URLs.
