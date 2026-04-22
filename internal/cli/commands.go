@@ -157,11 +157,18 @@ func newScanCommand() *cobra.Command {
 	var silent bool
 	var workers int
 	var debugFlag bool
+	var feedDiscovery bool
 
 	cmd := &cobra.Command{
 		Use:   "scan [blog_name]",
 		Short: "Scan blogs for new articles (pre-fills summaries from RSS descriptions).",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Scan blogs for new articles. Uses RSS/Atom feeds when available, otherwise
+falls back to HTML scraping via the configured CSS selector.
+
+For blogs that have a scrape selector but no feed URL, feed auto-discovery
+is skipped by default to avoid slow probes against sites without RSS.
+Use --feed-discovery to force feed discovery even when a selector is set.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
 			if debugFlag {
@@ -176,7 +183,7 @@ func newScanCommand() *cobra.Command {
 			defer db.Close()
 
 			if len(args) == 1 {
-				result, err := scanner.ScanBlogByNameDebug(db, args[0], dbg)
+				result, err := scanner.ScanBlogByNameDebug(db, args[0], feedDiscovery, dbg)
 				if err != nil {
 					return err
 				}
@@ -200,7 +207,7 @@ func newScanCommand() *cobra.Command {
 				if !silent {
 					color.New(color.FgCyan).Printf("Scanning %d blog(s)...\n\n", len(blogs))
 				}
-				results, err := scanner.ScanAllBlogsDebug(db, workers, dbg)
+				results, err := scanner.ScanAllBlogsDebug(db, workers, feedDiscovery, dbg)
 				if err != nil {
 					return err
 				}
@@ -230,6 +237,7 @@ func newScanCommand() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&silent, "silent", "s", false, "Only output 'scan done' when complete")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers when scanning all blogs")
+	cmd.Flags().BoolVar(&feedDiscovery, "feed-discovery", false, "Try to discover RSS/Atom feeds even for blogs with a scrape selector")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	return cmd
 }

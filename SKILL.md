@@ -46,6 +46,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`
 Common flags for `articles` and `interest`: `--summary` (show cached summary text)
+Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
+Scan-specific: `--feed-discovery` (try RSS/Atom discovery even for blogs with a scrape selector)
 
 ## Summary Pipeline
 
@@ -180,6 +182,7 @@ remaining-blogs — no updates.
 - State is stored locally in `~/.blogwatcher/`.
 - Config at `~/.blogwatcher/config.toml` — `[summary]` and `[interest]` sections with per-blog overrides.
 - HTML scrape blogs need a CSS selector — may break if site redesigns. RSS blogs are more reliable.
+- Blogs with a scrape selector skip RSS feed discovery during scan (avoids slow probes). Use `--feed-discovery` to override.
 - `scan` is idempotent — safe to run multiple times.
 - `summary` and `interest` are idempotent but cost money on first run — avoid `--refresh` unless needed.
 - No built-in scheduling — run manually or set up a cron job.

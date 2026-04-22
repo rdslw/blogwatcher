@@ -21,10 +21,10 @@ type ScanResult struct {
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
-	return ScanBlogDebug(db, blog, "", nil)
+	return ScanBlogDebug(db, blog, false, "", nil)
 }
 
-func ScanBlogDebug(db *storage.Database, blog model.Blog, workerTag string, dbg *debug.Logger) ScanResult {
+func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, workerTag string, dbg *debug.Logger) ScanResult {
 	blogStart := time.Now()
 	dbg.Log("%sscan start blog=%q url=%s", workerTag, blog.Name, blog.URL)
 
@@ -36,15 +36,22 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, workerTag string, dbg 
 
 	feedURL := blog.FeedURL
 	if feedURL == "" {
-		dbg.Log("%s  discovering feed for %q", workerTag, blog.Name)
-		t := time.Now()
-		if discovered, err := rss.DiscoverFeedURL(blog.URL, 30*time.Second); err == nil && discovered != "" {
-			feedURL = discovered
-			blog.FeedURL = discovered
-			_ = db.UpdateBlog(blog)
-			dbg.Log("%s  discovered feed=%s (%s)", workerTag, discovered, time.Since(t))
+		// Skip feed discovery for blogs that already have a scrape selector,
+		// unless --feed-discovery is explicitly requested. Probing common feed
+		// paths on sites without RSS can waste tens of seconds per blog.
+		if blog.ScrapeSelector != "" && !feedDiscovery {
+			dbg.Log("%s  skipping feed discovery (scrape selector set)", workerTag)
 		} else {
-			dbg.Log("%s  no feed discovered (%s)", workerTag, time.Since(t))
+			dbg.Log("%s  discovering feed for %q", workerTag, blog.Name)
+			t := time.Now()
+			if discovered, err := rss.DiscoverFeedURL(blog.URL, 15*time.Second); err == nil && discovered != "" {
+				feedURL = discovered
+				blog.FeedURL = discovered
+				_ = db.UpdateBlog(blog)
+				dbg.Log("%s  discovered feed=%s (%s)", workerTag, discovered, time.Since(t))
+			} else {
+				dbg.Log("%s  no feed discovered (%s)", workerTag, time.Since(t))
+			}
 		}
 	}
 
@@ -135,10 +142,10 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, workerTag string, dbg 
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
-	return ScanAllBlogsDebug(db, workers, nil)
+	return ScanAllBlogsDebug(db, workers, false, nil)
 }
 
-func ScanAllBlogsDebug(db *storage.Database, workers int, dbg *debug.Logger) ([]ScanResult, error) {
+func ScanAllBlogsDebug(db *storage.Database, workers int, feedDiscovery bool, dbg *debug.Logger) ([]ScanResult, error) {
 	blogs, err := db.ListBlogs()
 	if err != nil {
 		return nil, err
@@ -147,7 +154,7 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, dbg *debug.Logger) ([]
 	if workers <= 1 {
 		results := make([]ScanResult, 0, len(blogs))
 		for _, blog := range blogs {
-			results = append(results, ScanBlogDebug(db, blog, "", dbg))
+			results = append(results, ScanBlogDebug(db, blog, feedDiscovery, "", dbg))
 		}
 		return results, nil
 	}
@@ -171,7 +178,7 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, dbg *debug.Logger) ([]
 			}
 			defer workerDB.Close()
 			for item := range jobs {
-				results[item.Index] = ScanBlogDebug(workerDB, item.Blog, tag, dbg)
+				results[item.Index] = ScanBlogDebug(workerDB, item.Blog, feedDiscovery, tag, dbg)
 			}
 			errs <- nil
 		}()
@@ -192,10 +199,10 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, dbg *debug.Logger) ([]
 }
 
 func ScanBlogByName(db *storage.Database, name string) (*ScanResult, error) {
-	return ScanBlogByNameDebug(db, name, nil)
+	return ScanBlogByNameDebug(db, name, false, nil)
 }
 
-func ScanBlogByNameDebug(db *storage.Database, name string, dbg *debug.Logger) (*ScanResult, error) {
+func ScanBlogByNameDebug(db *storage.Database, name string, feedDiscovery bool, dbg *debug.Logger) (*ScanResult, error) {
 	blog, err := db.GetBlogByName(name)
 	if err != nil {
 		return nil, err
@@ -203,7 +210,7 @@ func ScanBlogByNameDebug(db *storage.Database, name string, dbg *debug.Logger) (
 	if blog == nil {
 		return nil, nil
 	}
-	result := ScanBlogDebug(db, *blog, "", dbg)
+	result := ScanBlogDebug(db, *blog, feedDiscovery, "", dbg)
 	return &result, nil
 }
 
