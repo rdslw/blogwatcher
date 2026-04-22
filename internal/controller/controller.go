@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/debug"
 	"github.com/rdslw/blogwatcher/internal/interest"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/storage"
@@ -358,6 +359,10 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 }
 
 func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options) ([]SummaryResult, error) {
+	return SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, nil)
+}
+
+func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger) ([]SummaryResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -396,14 +401,22 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 		blogNames[b.ID] = b.Name
 	}
 
+	dbg.Log("summary phase: %d article(s), workers=%d", len(articles), workers)
 	results := make([]SummaryResult, len(articles))
 
 	if workers <= 1 {
 		for i, article := range articles {
+			t := time.Now()
+			dbg.Log("summarize start article=%d %q", article.ID, article.Title)
 			result, err := summarizeOne(db, article, blogNames[article.BlogID], forceExtractive, refresh, opts)
 			if err != nil {
 				return nil, err
 			}
+			cached := ""
+			if result.Cached {
+				cached = " (cached)"
+			}
+			dbg.Log("summarize done  article=%d engine=%s%s (%s)", article.ID, result.Engine, cached, time.Since(t))
 			results[i] = result
 		}
 		return results, nil
@@ -439,9 +452,11 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 	}
 
 	for i := 0; i < workers; i++ {
+		workerID := i + 1
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			tag := fmt.Sprintf("[worker-%d] ", workerID)
 
 			workerDB, err := openDatabaseFn(db.Path())
 			if err != nil {
@@ -451,11 +466,18 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 			defer workerDB.Close()
 
 			for item := range jobs {
+				t := time.Now()
+				dbg.Log("%ssummarize start article=%d %q", tag, item.Article.ID, item.Article.Title)
 				result, err := summarizeOne(workerDB, item.Article, item.BlogName, forceExtractive, refresh, opts)
 				if err != nil {
 					setErr(err)
 					continue
 				}
+				cached := ""
+				if result.Cached {
+					cached = " (cached)"
+				}
+				dbg.Log("%ssummarize done  article=%d engine=%s%s (%s)", tag, item.Article.ID, result.Engine, cached, time.Since(t))
 				results[item.Index] = result
 			}
 		}()
@@ -491,6 +513,10 @@ func ClassifyArticleInterest(db *storage.Database, articleID int64, refresh bool
 }
 
 func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig) ([]InterestResult, error) {
+	return ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil)
+}
+
+func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger) ([]InterestResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -533,14 +559,24 @@ func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName strin
 		}
 	}
 
+	dbg.Log("interest phase: %d article(s), workers=%d", len(articles), workers)
 	results := make([]InterestResult, len(articles))
 
 	if workers <= 1 {
 		for i, article := range articles {
+			t := time.Now()
+			dbg.Log("classify start article=%d %q", article.ID, article.Title)
 			result, err := classifyOne(db, article, blogNames[article.BlogID], refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
 			if err != nil {
 				return nil, err
 			}
+			label := result.Article.InterestState
+			if result.Skipped {
+				label = "skipped"
+			} else if result.Cached {
+				label += " (cached)"
+			}
+			dbg.Log("classify done  article=%d state=%s (%s)", article.ID, label, time.Since(t))
 			results[i] = result
 		}
 		return results, nil
@@ -576,9 +612,11 @@ func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName strin
 	}
 
 	for i := 0; i < workers; i++ {
+		workerID := i + 1
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			tag := fmt.Sprintf("[worker-%d] ", workerID)
 
 			workerDB, err := openDatabaseFn(db.Path())
 			if err != nil {
@@ -588,11 +626,20 @@ func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName strin
 			defer workerDB.Close()
 
 			for item := range jobs {
+				t := time.Now()
+				dbg.Log("%sclassify start article=%d %q", tag, item.Article.ID, item.Article.Title)
 				result, err := classifyOne(workerDB, item.Article, item.BlogName, refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
 				if err != nil {
 					setErr(err)
 					continue
 				}
+				label := result.Article.InterestState
+				if result.Skipped {
+					label = "skipped"
+				} else if result.Cached {
+					label += " (cached)"
+				}
+				dbg.Log("%sclassify done  article=%d state=%s (%s)", tag, item.Article.ID, label, time.Since(t))
 				results[item.Index] = result
 			}
 		}()

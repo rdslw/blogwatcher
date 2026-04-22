@@ -13,6 +13,7 @@ import (
 
 	"github.com/rdslw/blogwatcher/internal/config"
 	"github.com/rdslw/blogwatcher/internal/controller"
+	"github.com/rdslw/blogwatcher/internal/debug"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/scanner"
 	"github.com/rdslw/blogwatcher/internal/skill"
@@ -155,12 +156,19 @@ blogwatcher installed, for example:
 func newScanCommand() *cobra.Command {
 	var silent bool
 	var workers int
+	var debugFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "scan [blog_name]",
 		Short: "Scan blogs for new articles (pre-fills summaries from RSS descriptions).",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var dbg *debug.Logger
+			if debugFlag {
+				dbg = debug.New()
+				dbg.Log("scan command started")
+			}
+
 			db, err := storage.OpenDatabase("")
 			if err != nil {
 				return err
@@ -168,7 +176,7 @@ func newScanCommand() *cobra.Command {
 			defer db.Close()
 
 			if len(args) == 1 {
-				result, err := scanner.ScanBlogByName(db, args[0])
+				result, err := scanner.ScanBlogByNameDebug(db, args[0], dbg)
 				if err != nil {
 					return err
 				}
@@ -192,7 +200,7 @@ func newScanCommand() *cobra.Command {
 				if !silent {
 					color.New(color.FgCyan).Printf("Scanning %d blog(s)...\n\n", len(blogs))
 				}
-				results, err := scanner.ScanAllBlogs(db, workers)
+				results, err := scanner.ScanAllBlogsDebug(db, workers, dbg)
 				if err != nil {
 					return err
 				}
@@ -216,11 +224,13 @@ func newScanCommand() *cobra.Command {
 			if silent {
 				fmt.Println("scan done")
 			}
+			dbg.Log("scan command finished")
 			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&silent, "silent", "s", false, "Only output 'scan done' when complete")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers when scanning all blogs")
+	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	return cmd
 }
 
@@ -470,6 +480,7 @@ func newSummaryCommand() *cobra.Command {
 	var workers int
 	var modelFlag string
 	var verbose bool
+	var debugFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "summary [article_id]",
@@ -503,6 +514,12 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
   gpt-5.4-mini    ~$0.0084/article   (strongest mini model)`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var dbg *debug.Logger
+			if debugFlag {
+				dbg = debug.New()
+				dbg.Log("summary command started")
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				printError(fmt.Errorf("config: %v", err))
@@ -531,7 +548,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				}
 				printSummaryResult(result, verbose)
 			} else {
-				results, err := controller.SummarizeArticles(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts)
+				results, err := controller.SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, dbg)
 				if err != nil {
 					printError(err)
 					return markError(err)
@@ -553,6 +570,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 					printSummaryResult(result, verbose)
 				}
 			}
+			dbg.Log("summary command finished")
 			return nil
 		},
 	}
@@ -565,6 +583,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel summarization")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
+	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	return cmd
 }
 
@@ -579,6 +598,7 @@ func newInterestCommand() *cobra.Command {
 	var modelFlag string
 	var verbose bool
 	var showSummary bool
+	var debugFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "interest [article_id]",
@@ -607,6 +627,12 @@ Configuration via ~/.blogwatcher/config.toml:
   interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var dbg *debug.Logger
+			if debugFlag {
+				dbg = debug.New()
+				dbg.Log("interest command started")
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				printError(fmt.Errorf("config: %v", err))
@@ -639,7 +665,7 @@ Configuration via ~/.blogwatcher/config.toml:
 				return nil
 			}
 
-			results, err := controller.ClassifyArticlesInterest(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg)
+			results, err := controller.ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -661,6 +687,7 @@ Configuration via ~/.blogwatcher/config.toml:
 			for _, result := range results {
 				printInterestResult(result, verbose, showSummary)
 			}
+			dbg.Log("interest command finished")
 			return nil
 		},
 	}
@@ -675,6 +702,7 @@ Configuration via ~/.blogwatcher/config.toml:
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use for interest classification (overrides config)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
+	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	return cmd
 }
 

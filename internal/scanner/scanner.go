@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rdslw/blogwatcher/internal/debug"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/rss"
 	"github.com/rdslw/blogwatcher/internal/scraper"
@@ -20,6 +21,13 @@ type ScanResult struct {
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
+	return ScanBlogDebug(db, blog, "", nil)
+}
+
+func ScanBlogDebug(db *storage.Database, blog model.Blog, workerTag string, dbg *debug.Logger) ScanResult {
+	blogStart := time.Now()
+	dbg.Log("%sscan start blog=%q url=%s", workerTag, blog.Name, blog.URL)
+
 	var (
 		articles []model.Article
 		source   = "none"
@@ -28,24 +36,35 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 
 	feedURL := blog.FeedURL
 	if feedURL == "" {
+		dbg.Log("%s  discovering feed for %q", workerTag, blog.Name)
+		t := time.Now()
 		if discovered, err := rss.DiscoverFeedURL(blog.URL, 30*time.Second); err == nil && discovered != "" {
 			feedURL = discovered
 			blog.FeedURL = discovered
 			_ = db.UpdateBlog(blog)
+			dbg.Log("%s  discovered feed=%s (%s)", workerTag, discovered, time.Since(t))
+		} else {
+			dbg.Log("%s  no feed discovered (%s)", workerTag, time.Since(t))
 		}
 	}
 
 	if feedURL != "" {
+		dbg.Log("%s  parsing RSS feed for %q", workerTag, blog.Name)
+		t := time.Now()
 		feedArticles, err := rss.ParseFeed(feedURL, 30*time.Second)
 		if err != nil {
 			errText = err.Error()
+			dbg.Log("%s  RSS parse failed: %v (%s)", workerTag, err, time.Since(t))
 		} else {
 			articles = convertFeedArticles(blog.ID, feedArticles)
 			source = "rss"
+			dbg.Log("%s  RSS parsed %d articles (%s)", workerTag, len(articles), time.Since(t))
 		}
 	}
 
 	if len(articles) == 0 && blog.ScrapeSelector != "" {
+		dbg.Log("%s  scraping HTML for %q selector=%q", workerTag, blog.Name, blog.ScrapeSelector)
+		t := time.Now()
 		scrapedArticles, err := scraper.ScrapeBlog(blog.URL, blog.ScrapeSelector, 30*time.Second)
 		if err != nil {
 			if errText != "" {
@@ -53,10 +72,12 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 			} else {
 				errText = err.Error()
 			}
+			dbg.Log("%s  scrape failed: %v (%s)", workerTag, err, time.Since(t))
 		} else {
 			articles = convertScrapedArticles(blog.ID, scrapedArticles)
 			source = "scraper"
 			errText = ""
+			dbg.Log("%s  scraped %d articles (%s)", workerTag, len(articles), time.Since(t))
 		}
 	}
 
@@ -102,6 +123,8 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 
 	_ = db.UpdateBlogLastScanned(blog.ID, time.Now())
 
+	dbg.Log("%sscan done  blog=%q source=%s found=%d new=%d (%s)", workerTag, blog.Name, source, len(seenURLs), newCount, time.Since(blogStart))
+
 	return ScanResult{
 		BlogName:    blog.Name,
 		NewArticles: newCount,
@@ -112,14 +135,19 @@ func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
+	return ScanAllBlogsDebug(db, workers, nil)
+}
+
+func ScanAllBlogsDebug(db *storage.Database, workers int, dbg *debug.Logger) ([]ScanResult, error) {
 	blogs, err := db.ListBlogs()
 	if err != nil {
 		return nil, err
 	}
+	dbg.Log("scan phase: %d blog(s), workers=%d", len(blogs), workers)
 	if workers <= 1 {
 		results := make([]ScanResult, 0, len(blogs))
 		for _, blog := range blogs {
-			results = append(results, ScanBlog(db, blog))
+			results = append(results, ScanBlogDebug(db, blog, "", dbg))
 		}
 		return results, nil
 	}
@@ -133,7 +161,9 @@ func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
 	errs := make(chan error, workers)
 
 	for i := 0; i < workers; i++ {
+		workerID := i + 1
 		go func() {
+			tag := fmt.Sprintf("[worker-%d] ", workerID)
 			workerDB, err := storage.OpenDatabase(db.Path())
 			if err != nil {
 				errs <- err
@@ -141,7 +171,7 @@ func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
 			}
 			defer workerDB.Close()
 			for item := range jobs {
-				results[item.Index] = ScanBlog(workerDB, item.Blog)
+				results[item.Index] = ScanBlogDebug(workerDB, item.Blog, tag, dbg)
 			}
 			errs <- nil
 		}()
@@ -162,6 +192,10 @@ func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
 }
 
 func ScanBlogByName(db *storage.Database, name string) (*ScanResult, error) {
+	return ScanBlogByNameDebug(db, name, nil)
+}
+
+func ScanBlogByNameDebug(db *storage.Database, name string, dbg *debug.Logger) (*ScanResult, error) {
 	blog, err := db.GetBlogByName(name)
 	if err != nil {
 		return nil, err
@@ -169,7 +203,7 @@ func ScanBlogByName(db *storage.Database, name string) (*ScanResult, error) {
 	if blog == nil {
 		return nil, nil
 	}
-	result := ScanBlog(db, *blog)
+	result := ScanBlogDebug(db, *blog, "", dbg)
 	return &result, nil
 }
 
