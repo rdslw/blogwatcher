@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rdslw/blogwatcher/internal/config"
@@ -13,6 +14,12 @@ import (
 	"github.com/rdslw/blogwatcher/internal/storage"
 	"github.com/rdslw/blogwatcher/internal/summarizer"
 )
+
+// debugTrivialThreshold is the duration below which an article operation
+// (summary or interest classification) is considered trivially fast (cached
+// or skipped). Individual debug lines are suppressed for these; a single
+// summary line is emitted instead.
+const debugTrivialThreshold = 10 * time.Millisecond
 
 // rssSummaryMinChars is the minimum length for an RSS-sourced summary to be
 // considered sufficient. Shorter RSS descriptions (typical 1-2 sentence blurbs
@@ -297,6 +304,7 @@ type SummaryResult struct {
 	BlogName string
 	Engine   string
 	Cached   bool
+	Upgraded bool
 	Warning  string
 }
 
@@ -327,7 +335,8 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 		blogName = blog.Name
 	}
 
-	if article.Summary != "" && !refresh && !isRSSSummaryShort(*article) {
+	upgraded := isRSSSummaryShort(*article)
+	if article.Summary != "" && !refresh && !upgraded {
 		engine := article.SummaryEngine
 		if engine == "" {
 			engine = "unknown"
@@ -355,7 +364,7 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 	article.Summary = result.Summary
 	article.SummaryEngine = result.Engine
 
-	return SummaryResult{Article: *article, BlogName: blogName, Engine: result.Engine, Cached: false, Warning: result.Warning}, nil
+	return SummaryResult{Article: *article, BlogName: blogName, Engine: result.Engine, Cached: false, Upgraded: upgraded, Warning: result.Warning}, nil
 }
 
 func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options) ([]SummaryResult, error) {
@@ -401,24 +410,32 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 		blogNames[b.ID] = b.Name
 	}
 
+	phaseStart := time.Now()
 	dbg.Log("summary phase: %d article(s), workers=%d", len(articles), workers)
 	results := make([]SummaryResult, len(articles))
 
 	if workers <= 1 {
+		var skipped int
+		var processed int
 		for i, article := range articles {
 			t := time.Now()
-			dbg.Log("summarize start article=%d %q", article.ID, article.Title)
 			result, err := summarizeOne(db, article, blogNames[article.BlogID], forceExtractive, refresh, opts)
 			if err != nil {
 				return nil, err
 			}
-			cached := ""
-			if result.Cached {
-				cached = " (cached)"
+			elapsed := time.Since(t)
+			if elapsed < debugTrivialThreshold {
+				skipped++
+			} else {
+				processed++
+				dbg.Log("summarize article=%d %q engine=%s%s (%s)", article.ID, article.Title, result.Engine, summaryDebugTag(result), elapsed)
 			}
-			dbg.Log("summarize done  article=%d engine=%s%s (%s)", article.ID, result.Engine, cached, time.Since(t))
 			results[i] = result
 		}
+		if skipped > 0 {
+			dbg.Log("summarize skipped %d cached article(s)", skipped)
+		}
+		dbg.Log("summary phase done: %d processed, %d cached, total %s", processed, skipped, time.Since(phaseStart))
 		return results, nil
 	}
 
@@ -451,6 +468,9 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 		errMu.Unlock()
 	}
 
+	var skippedCount atomic.Int64
+	var processedCount atomic.Int64
+
 	for i := 0; i < workers; i++ {
 		workerID := i + 1
 		wg.Add(1)
@@ -467,23 +487,28 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 
 			for item := range jobs {
 				t := time.Now()
-				dbg.Log("%ssummarize start article=%d %q", tag, item.Article.ID, item.Article.Title)
 				result, err := summarizeOne(workerDB, item.Article, item.BlogName, forceExtractive, refresh, opts)
 				if err != nil {
 					setErr(err)
 					continue
 				}
-				cached := ""
-				if result.Cached {
-					cached = " (cached)"
+				elapsed := time.Since(t)
+				if elapsed < debugTrivialThreshold {
+					skippedCount.Add(1)
+				} else {
+					processedCount.Add(1)
+					dbg.Log("%ssummarize article=%d %q engine=%s%s (%s)", tag, item.Article.ID, item.Article.Title, result.Engine, summaryDebugTag(result), elapsed)
 				}
-				dbg.Log("%ssummarize done  article=%d engine=%s%s (%s)", tag, item.Article.ID, result.Engine, cached, time.Since(t))
 				results[item.Index] = result
 			}
 		}()
 	}
 
 	wg.Wait()
+	if s := skippedCount.Load(); s > 0 {
+		dbg.Log("summarize skipped %d cached article(s)", s)
+	}
+	dbg.Log("summary phase done: %d processed, %d cached, total %s", processedCount.Load(), skippedCount.Load(), time.Since(phaseStart))
 	if firstErr != nil {
 		return nil, firstErr
 	}
@@ -559,26 +584,38 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 		}
 	}
 
+	phaseStart := time.Now()
 	dbg.Log("interest phase: %d article(s), workers=%d", len(articles), workers)
 	results := make([]InterestResult, len(articles))
 
 	if workers <= 1 {
+		var skipped int
+		var processed int
 		for i, article := range articles {
 			t := time.Now()
-			dbg.Log("classify start article=%d %q", article.ID, article.Title)
 			result, err := classifyOne(db, article, blogNames[article.BlogID], refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
 			if err != nil {
 				return nil, err
 			}
-			label := result.Article.InterestState
-			if result.Skipped {
-				label = "skipped"
-			} else if result.Cached {
-				label += " (cached)"
+			elapsed := time.Since(t)
+			if elapsed < debugTrivialThreshold {
+				skipped++
+			} else {
+				processed++
+				label := result.Article.InterestState
+				if result.Skipped {
+					label = "skipped"
+				} else if result.Cached {
+					label += " (cached)"
+				}
+				dbg.Log("classify article=%d %q state=%s (%s)", article.ID, article.Title, label, elapsed)
 			}
-			dbg.Log("classify done  article=%d state=%s (%s)", article.ID, label, time.Since(t))
 			results[i] = result
 		}
+		if skipped > 0 {
+			dbg.Log("classify skipped %d article(s) (cached/no prompt)", skipped)
+		}
+		dbg.Log("interest phase done: %d processed, %d cached/skipped, total %s", processed, skipped, time.Since(phaseStart))
 		return results, nil
 	}
 
@@ -611,6 +648,9 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 		errMu.Unlock()
 	}
 
+	var skippedCount atomic.Int64
+	var processedCount atomic.Int64
+
 	for i := 0; i < workers; i++ {
 		workerID := i + 1
 		wg.Add(1)
@@ -627,25 +667,34 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 
 			for item := range jobs {
 				t := time.Now()
-				dbg.Log("%sclassify start article=%d %q", tag, item.Article.ID, item.Article.Title)
 				result, err := classifyOne(workerDB, item.Article, item.BlogName, refresh, summaryRefresh, forceExtractive, summaryOpts, interestCfg)
 				if err != nil {
 					setErr(err)
 					continue
 				}
-				label := result.Article.InterestState
-				if result.Skipped {
-					label = "skipped"
-				} else if result.Cached {
-					label += " (cached)"
+				elapsed := time.Since(t)
+				if elapsed < debugTrivialThreshold {
+					skippedCount.Add(1)
+				} else {
+					processedCount.Add(1)
+					label := result.Article.InterestState
+					if result.Skipped {
+						label = "skipped"
+					} else if result.Cached {
+						label += " (cached)"
+					}
+					dbg.Log("%sclassify article=%d %q state=%s (%s)", tag, item.Article.ID, item.Article.Title, label, elapsed)
 				}
-				dbg.Log("%sclassify done  article=%d state=%s (%s)", tag, item.Article.ID, label, time.Since(t))
 				results[item.Index] = result
 			}
 		}()
 	}
 
 	wg.Wait()
+	if s := skippedCount.Load(); s > 0 {
+		dbg.Log("classify skipped %d article(s) (cached/no prompt)", s)
+	}
+	dbg.Log("interest phase done: %d processed, %d cached/skipped, total %s", processedCount.Load(), skippedCount.Load(), time.Since(phaseStart))
 	if firstErr != nil {
 		return nil, firstErr
 	}
@@ -655,11 +704,12 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 
 func summarizeOne(db *storage.Database, article model.Article, blogName string, forceExtractive bool, refresh bool, opts summarizer.Options) (SummaryResult, error) {
 	cached := false
+	upgraded := isRSSSummaryShort(article)
 	engine := article.SummaryEngine
 	if engine == "" {
 		engine = "unknown"
 	}
-	if article.Summary != "" && !refresh && !isRSSSummaryShort(article) {
+	if article.Summary != "" && !refresh && !upgraded {
 		cached = true
 	} else {
 		result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
@@ -691,6 +741,7 @@ func summarizeOne(db *storage.Database, article model.Article, blogName string, 
 			BlogName: blogName,
 			Engine:   engine,
 			Cached:   cached,
+			Upgraded: upgraded,
 			Warning:  result.Warning,
 		}, nil
 	}
@@ -700,6 +751,16 @@ func summarizeOne(db *storage.Database, article model.Article, blogName string, 
 		Engine:   engine,
 		Cached:   cached,
 	}, nil
+}
+
+func summaryDebugTag(r SummaryResult) string {
+	if r.Cached {
+		return " (cached)"
+	}
+	if r.Upgraded {
+		return " (upgraded-rss)"
+	}
+	return ""
 }
 
 func classifyOne(db *storage.Database, article model.Article, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, summaryOpts summarizer.Options, interestCfg config.InterestConfig) (InterestResult, error) {

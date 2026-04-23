@@ -1056,6 +1056,9 @@ func TestSummarizeArticleShortRSSAutoUpgraded(t *testing.T) {
 	if result.Cached {
 		t.Fatalf("expected cached=false for upgraded summary")
 	}
+	if !result.Upgraded {
+		t.Fatalf("expected upgraded=true for short RSS auto-upgrade")
+	}
 	if result.Article.Summary != "Full LLM summary of the article." {
 		t.Fatalf("expected upgraded summary, got %q", result.Article.Summary)
 	}
@@ -1147,6 +1150,26 @@ func TestClassifyInterestAutoUpgradesShortRSSSummary(t *testing.T) {
 	}
 	if result.Article.InterestState != model.InterestStatePrefer {
 		t.Fatalf("expected prefer state, got %q", result.Article.InterestState)
+	}
+}
+
+func TestSummaryDebugTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   SummaryResult
+		expected string
+	}{
+		{"cached", SummaryResult{Cached: true}, " (cached)"},
+		{"upgraded", SummaryResult{Upgraded: true}, " (upgraded-rss)"},
+		{"fresh", SummaryResult{}, ""},
+		{"cached takes precedence over upgraded", SummaryResult{Cached: true, Upgraded: true}, " (cached)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := summaryDebugTag(tc.result); got != tc.expected {
+				t.Fatalf("summaryDebugTag() = %q, want %q", got, tc.expected)
+			}
+		})
 	}
 }
 
