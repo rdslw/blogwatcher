@@ -827,7 +827,7 @@ func printScanResult(result scanner.ScanResult) {
 	if result.Source == "rss" {
 		sourceLabel = "RSS"
 	}
-	fmt.Printf("    Source: %s | Found: %d | ", sourceLabel, result.TotalFound)
+	fmt.Printf("    Source: %s | Total: %d | Unread: %d | ", sourceLabel, result.TotalArticles, result.UnreadArticles)
 	color.New(statusColor).Printf("New: %d\n", result.NewArticles)
 }
 

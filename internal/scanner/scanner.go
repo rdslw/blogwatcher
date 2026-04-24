@@ -13,11 +13,12 @@ import (
 )
 
 type ScanResult struct {
-	BlogName    string
-	NewArticles int
-	TotalFound  int
-	Source      string
-	Error       string
+	BlogName       string
+	NewArticles    int
+	TotalArticles  int
+	UnreadArticles int
+	Source         string
+	Error          string
 }
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
@@ -130,14 +131,20 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 
 	_ = db.UpdateBlogLastScanned(blog.ID, time.Now())
 
-	dbg.Log("%sscan done  blog=%q source=%s found=%d new=%d (%s)", workerTag, blog.Name, source, len(seenURLs), newCount, time.Since(blogStart))
+	totalArticles, unreadArticles, err := db.CountArticles(blog.ID)
+	if err != nil {
+		errText = err.Error()
+	}
+
+	dbg.Log("%sscan done  blog=%q source=%s found=%d total=%d unread=%d new=%d (%s)", workerTag, blog.Name, source, len(seenURLs), totalArticles, unreadArticles, newCount, time.Since(blogStart))
 
 	return ScanResult{
-		BlogName:    blog.Name,
-		NewArticles: newCount,
-		TotalFound:  len(seenURLs),
-		Source:      source,
-		Error:       errText,
+		BlogName:       blog.Name,
+		NewArticles:    newCount,
+		TotalArticles:  totalArticles,
+		UnreadArticles: unreadArticles,
+		Source:         source,
+		Error:          errText,
 	}
 }
 

@@ -46,6 +46,12 @@ func TestScanBlogRSS(t *testing.T) {
 	if result.NewArticles != 2 {
 		t.Fatalf("expected 2 new articles, got %d", result.NewArticles)
 	}
+	if result.TotalArticles != 2 {
+		t.Fatalf("expected 2 total articles, got %d", result.TotalArticles)
+	}
+	if result.UnreadArticles != 2 {
+		t.Fatalf("expected 2 unread articles, got %d", result.UnreadArticles)
+	}
 	if result.Source != "rss" {
 		t.Fatalf("expected rss source, got %s", result.Source)
 	}
@@ -149,14 +155,23 @@ func TestScanBlogRespectsExistingArticles(t *testing.T) {
 		t.Fatalf("add blog: %v", err)
 	}
 
-	_, err = db.AddArticle(model.Article{BlogID: blog.ID, Title: "First", URL: "https://example.com/1", DiscoveredDate: ptrTime(time.Now())})
+	existingArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "First", URL: "https://example.com/1", DiscoveredDate: ptrTime(time.Now())})
 	if err != nil {
 		t.Fatalf("add article: %v", err)
+	}
+	if _, err := db.MarkArticleRead(existingArticle.ID); err != nil {
+		t.Fatalf("mark article read: %v", err)
 	}
 
 	result := ScanBlog(db, blog)
 	if result.NewArticles != 1 {
 		t.Fatalf("expected 1 new article, got %d", result.NewArticles)
+	}
+	if result.TotalArticles != 2 {
+		t.Fatalf("expected 2 total articles, got %d", result.TotalArticles)
+	}
+	if result.UnreadArticles != 1 {
+		t.Fatalf("expected 1 unread article, got %d", result.UnreadArticles)
 	}
 }
 
