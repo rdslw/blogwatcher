@@ -22,17 +22,14 @@ test: ## Run the Go test suite
 build: build-local ## Build for the current machine into dist/
 
 build-local:
-	go generate ./internal/skill/
 	mkdir -p $(DIST_DIR)
 	go build -ldflags='$(LDFLAGS)' -o $(DIST_DIR)/$(BINARY) $(PACKAGE)
 
 build-linux-amd64: ## Build the release Linux amd64 binary into dist/
-	go generate ./internal/skill/
 	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='$(LDFLAGS)' -o $(DIST_DIR)/$(BINARY)-linux-amd64 $(PACKAGE)
 
 build-darwin-arm64: ## Build the release macOS arm64 binary into dist/
-	go generate ./internal/skill/
 	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags='$(LDFLAGS)' -o $(DIST_DIR)/$(BINARY)-darwin-arm64 $(PACKAGE)
 

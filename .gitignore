@@ -30,8 +30,5 @@ Thumbs.db
 # Database (local dev)
 *.db
 
-# Generated embed copies
-internal/skill/SKILL.md
-
 # Local scratch files
 tmp/
