@@ -86,9 +86,16 @@ func newRemoveCommand() *cobra.Command {
 }
 
 func newBlogsCommand() *cobra.Command {
+	var verbose bool
+
 	cmd := &cobra.Command{
 		Use:   "blogs",
 		Short: "List all tracked blogs.",
+		Long: `List all tracked blogs.
+
+Entries interest labels apply to unread articles: "a/b/c h/n/p" means
+hide/normal/prefer counts; "none h/n/p", "no interest data", and
+"partial interest data" describe zero, missing, or partial unread interest data.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := storage.OpenDatabase("")
 			if err != nil {
@@ -105,23 +112,51 @@ func newBlogsCommand() *cobra.Command {
 			}
 			color.New(color.FgCyan, color.Bold).Printf("Tracked blogs (%d):\n\n", len(blogs))
 			for _, blog := range blogs {
+				stats, err := db.CountArticleStats(blog.ID)
+				if err != nil {
+					return err
+				}
 				color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
 				fmt.Printf("    URL: %s\n", blog.URL)
-				if blog.FeedURL != "" {
+				if verbose && blog.FeedURL != "" {
 					fmt.Printf("    Feed: %s\n", blog.FeedURL)
 				}
-				if blog.ScrapeSelector != "" {
+				if verbose && blog.ScrapeSelector != "" {
 					fmt.Printf("    Selector: %s\n", blog.ScrapeSelector)
 				}
 				if blog.LastScanned != nil {
 					fmt.Printf("    Last scanned: %s\n", blog.LastScanned.Format("2006-01-02 15:04"))
 				}
+				fmt.Printf("    Entries: %d total, %s (%s)\n", stats.Total, formatUnreadCount(stats.Unread), formatInterestStats(stats))
 				fmt.Println()
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show feed URL and scrape selector")
 	return cmd
+}
+
+func formatUnreadCount(unread int) string {
+	text := fmt.Sprintf("%d unread", unread)
+	if unread == 0 {
+		return text
+	}
+	return color.New(color.FgYellow, color.Bold).Sprint(text)
+}
+
+func formatInterestStats(stats storage.ArticleStats) string {
+	if stats.Unread == 0 {
+		return "none h/n/p"
+	}
+	interestTotal := stats.Hide + stats.Normal + stats.Prefer
+	if interestTotal == 0 {
+		return "no interest data"
+	}
+	if interestTotal < stats.Unread {
+		return "partial interest data"
+	}
+	return fmt.Sprintf("%d/%d/%d h/n/p", stats.Hide, stats.Normal, stats.Prefer)
 }
 
 func newExportCommand() *cobra.Command {

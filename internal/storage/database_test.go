@@ -117,6 +117,74 @@ func TestGetExistingArticleURLs(t *testing.T) {
 	}
 }
 
+func TestCountArticleStats(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	otherBlog, err := db.AddBlog(model.Blog{Name: "Other", URL: "https://other.example.com"})
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	articles := []model.Article{
+		{BlogID: blog.ID, Title: "Hidden", URL: "https://example.com/hidden"},
+		{BlogID: blog.ID, Title: "Normal", URL: "https://example.com/normal"},
+		{BlogID: blog.ID, Title: "Prefer", URL: "https://example.com/prefer"},
+		{BlogID: blog.ID, Title: "Unclassified", URL: "https://example.com/unclassified"},
+		{BlogID: otherBlog.ID, Title: "Other Hidden", URL: "https://other.example.com/hidden"},
+	}
+
+	for i := range articles {
+		article, err := db.AddArticle(articles[i])
+		if err != nil {
+			t.Fatalf("add article %d: %v", i, err)
+		}
+		articles[i].ID = article.ID
+	}
+
+	now := time.Now()
+	if err := db.UpdateArticleInterest(articles[0].ID, model.InterestStateHide, "hidden", "test", now); err != nil {
+		t.Fatalf("hide interest: %v", err)
+	}
+	if err := db.UpdateArticleInterest(articles[1].ID, model.InterestStateNormal, "normal", "test", now); err != nil {
+		t.Fatalf("normal interest: %v", err)
+	}
+	if err := db.UpdateArticleInterest(articles[2].ID, model.InterestStatePrefer, "prefer", "test", now); err != nil {
+		t.Fatalf("prefer interest: %v", err)
+	}
+	if _, err := db.MarkArticleRead(articles[1].ID); err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+	if err := db.UpdateArticleInterest(articles[4].ID, model.InterestStateHide, "hidden", "test", now); err != nil {
+		t.Fatalf("other hide interest: %v", err)
+	}
+
+	stats, err := db.CountArticleStats(blog.ID)
+	if err != nil {
+		t.Fatalf("count stats: %v", err)
+	}
+	if stats.Total != 4 || stats.Unread != 3 || stats.Hide != 1 || stats.Normal != 0 || stats.Prefer != 1 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+
+	total, unread, err := db.CountArticles(blog.ID)
+	if err != nil {
+		t.Fatalf("count articles: %v", err)
+	}
+	if total != stats.Total || unread != stats.Unread {
+		t.Fatalf("CountArticles mismatch: total=%d unread=%d stats=%+v", total, unread, stats)
+	}
+}
+
 func TestDatabaseForeignKeyEnforced(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")

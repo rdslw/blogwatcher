@@ -62,6 +62,9 @@ blogwatcher add "No-RSS Blog" https://norss.com --scrape-selector "article h2 a"
 # List all tracked blogs
 blogwatcher blogs
 
+# Include feed URL and scrape selector
+blogwatcher blogs -v
+
 # Remove a blog (and all its articles)
 blogwatcher remove "My Favorite Blog"
 
@@ -72,6 +75,8 @@ blogwatcher remove "My Favorite Blog" -y
 blogwatcher export > blogs.sh
 sh blogs.sh
 ```
+
+`Entries` interest labels apply to unread articles: `a/b/c h/n/p`, `none h/n/p`, `no interest data`, or `partial interest data`.
 
 ### Scanning for New Articles
 

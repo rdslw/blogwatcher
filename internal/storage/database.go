@@ -374,9 +374,36 @@ func (db *Database) ListArticles(unreadOnly bool, blogID *int64) ([]model.Articl
 }
 
 func (db *Database) CountArticles(blogID int64) (total int, unread int, err error) {
-	row := db.conn.QueryRow(`SELECT COUNT(*), COUNT(CASE WHEN is_read = 0 THEN 1 END) FROM articles WHERE blog_id = ?`, blogID)
-	err = row.Scan(&total, &unread)
-	return total, unread, err
+	stats, err := db.CountArticleStats(blogID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return stats.Total, stats.Unread, nil
+}
+
+type ArticleStats struct {
+	Total  int
+	Unread int
+	Hide   int
+	Normal int
+	Prefer int
+}
+
+func (db *Database) CountArticleStats(blogID int64) (ArticleStats, error) {
+	row := db.conn.QueryRow(`
+		SELECT
+			COUNT(*),
+			COUNT(CASE WHEN is_read = 0 THEN 1 END),
+			COUNT(CASE WHEN is_read = 0 AND interest_state = ? THEN 1 END),
+			COUNT(CASE WHEN is_read = 0 AND interest_state = ? THEN 1 END),
+			COUNT(CASE WHEN is_read = 0 AND interest_state = ? THEN 1 END)
+		FROM articles
+		WHERE blog_id = ?
+	`, model.InterestStateHide, model.InterestStateNormal, model.InterestStatePrefer, blogID)
+
+	var stats ArticleStats
+	err := row.Scan(&stats.Total, &stats.Unread, &stats.Hide, &stats.Normal, &stats.Prefer)
+	return stats, err
 }
 
 func (db *Database) MarkArticleRead(id int64) (bool, error) {
