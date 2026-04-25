@@ -22,6 +22,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher articles --blog <name>` | Unread articles for one blog |
 | `blogwatcher articles --filter norm` | Hide `hide`-classified, show prefer+normal |
 | `blogwatcher articles --filter prefer` | Show only `prefer`-classified articles |
+| `blogwatcher articles --sort oldest` | Order by date (earliest first; default is `newest`) |
 | `blogwatcher articles -s` | Show cached summary text alongside articles |
 | `blogwatcher articles -v` | Show blog, engine, summary size, and timestamp metadata |
 | `blogwatcher read <id> [id...]` | Mark article(s) as read |
@@ -32,11 +33,13 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher summary --all` | Summarize all articles including read |
 | `blogwatcher summary --refresh` | Re-generate even if cached |
 | `blogwatcher summary --extractive` | Force non-LLM snippet mode |
+| `blogwatcher summary --sort oldest` | Order output by date (earliest first; default `newest`) |
 | `blogwatcher interest [id]` | Classify article(s) as prefer/normal/hide |
 | `blogwatcher interest --all` | Classify all articles including read |
 | `blogwatcher interest --refresh` | Re-classify even if cached |
 | `blogwatcher interest -s` | Show cached summary text alongside interest results |
 | `blogwatcher interest -v` | Show blog, engine, summary size, and timestamp metadata |
+| `blogwatcher interest --sort oldest` | Order output by date (earliest first; default `newest`) |
 | `blogwatcher add <name> <url>` | Add blog (auto-discovers RSS) |
 | `blogwatcher add <name> <url> --feed-url <rss>` | Add blog with explicit feed URL |
 | `blogwatcher add <name> <url> --scrape-selector <css>` | Add blog with HTML scraping |

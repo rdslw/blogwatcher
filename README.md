@@ -111,6 +111,9 @@ blogwatcher articles --summary
 # Combine verbose metadata with summary text
 blogwatcher articles -v -s
 
+# Sort by date: newest first (default) or oldest first
+blogwatcher articles --sort oldest
+
 # Interest tags appear inline once classified
 blogwatcher articles
 ```
@@ -132,6 +135,9 @@ blogwatcher summary --extractive
 
 # Show blog, engine, and summary size metadata
 blogwatcher summary --verbose
+
+# Sort output by date: newest first (default) or oldest first
+blogwatcher summary --sort oldest
 ```
 
 ```bash
@@ -165,6 +171,9 @@ blogwatcher interest --summary
 
 # Show blog, engine, summary size, and timestamp metadata
 blogwatcher interest --verbose
+
+# Sort output by date: newest first (default) or oldest first
+blogwatcher interest --sort oldest
 ```
 
 ### Summary Configuration

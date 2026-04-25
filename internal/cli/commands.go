@@ -248,6 +248,7 @@ func newArticlesCommand() *cobra.Command {
 	var showSummary bool
 	var verbose bool
 	var interestFilter string
+	var sortFlag string
 
 	cmd := &cobra.Command{
 		Use:   "articles [article_id...]",
@@ -264,6 +265,11 @@ The --filter flag controls interest-based filtering:
 			case "all", "norm", "prefer":
 			default:
 				return fmt.Errorf("invalid --filter value: %q (must be all, norm, or prefer)", interestFilter)
+			}
+
+			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				return err
 			}
 
 			db, err := storage.OpenDatabase("")
@@ -292,6 +298,8 @@ The --filter flag controls interest-based filtering:
 				printError(err)
 				return markError(err)
 			}
+
+			controller.SortArticles(articles, sortOrder)
 
 			if len(articles) == 0 {
 				if len(args) > 0 {
@@ -323,6 +331,7 @@ The --filter flag controls interest-based filtering:
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside articles")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().StringVarP(&interestFilter, "filter", "f", "all", "Interest filter: all, norm, prefer")
+	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	return cmd
 }
 
@@ -489,6 +498,7 @@ func newSummaryCommand() *cobra.Command {
 	var modelFlag string
 	var verbose bool
 	var debugFlag bool
+	var sortFlag string
 
 	cmd := &cobra.Command{
 		Use:   "summary [article_id]",
@@ -528,6 +538,11 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				dbg.Log("summary command started")
 			}
 
+			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				return err
+			}
+
 			cfg, err := config.Load()
 			if err != nil {
 				printError(fmt.Errorf("config: %v", err))
@@ -561,6 +576,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 					printError(err)
 					return markError(err)
 				}
+				controller.SortSummaryResults(results, sortOrder)
 				if len(results) == 0 {
 					if showAll {
 						fmt.Println("No articles found.")
@@ -592,6 +608,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
+	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	return cmd
 }
 
@@ -607,6 +624,7 @@ func newInterestCommand() *cobra.Command {
 	var verbose bool
 	var showSummary bool
 	var debugFlag bool
+	var sortFlag string
 
 	cmd := &cobra.Command{
 		Use:   "interest [article_id]",
@@ -639,6 +657,11 @@ Configuration via ~/.blogwatcher/config.toml:
 			if debugFlag {
 				dbg = debug.New()
 				dbg.Log("interest command started")
+			}
+
+			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				return err
 			}
 
 			cfg, err := config.Load()
@@ -678,6 +701,7 @@ Configuration via ~/.blogwatcher/config.toml:
 				printError(err)
 				return markError(err)
 			}
+			controller.SortInterestResults(results, sortOrder)
 			if len(results) == 0 {
 				if showAll {
 					fmt.Println("No articles found.")
@@ -711,6 +735,7 @@ Configuration via ~/.blogwatcher/config.toml:
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
+	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	return cmd
 }
 
