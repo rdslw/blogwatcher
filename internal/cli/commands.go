@@ -1005,7 +1005,31 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 	if showSummary && article.Summary != "" {
 		fmt.Printf("       Summary: %s\n", article.Summary)
 	}
+	if verbose {
+		printArticleHackerNews(article)
+	}
 	fmt.Println()
+}
+
+func printArticleHackerNews(article model.Article) {
+	if article.HNFetched == nil {
+		fmt.Printf("       HN: not yet checked\n")
+		return
+	}
+	if article.HNItemID == 0 {
+		fmt.Printf("       HN: no discussion found (checked %s)\n", article.HNFetched.Format("2006-01-02 15:04"))
+		return
+	}
+	fmt.Printf("       HN: fetched %s, %d points, %d comments\n",
+		article.HNFetched.Format("2006-01-02 15:04"), article.HNPoints, article.HNComments)
+	fmt.Printf("       HN URL: %s\n", hackernews.ItemURL(article.HNItemID))
+	if article.HNSummary != "" {
+		chars := len(article.HNSummary)
+		words := len(strings.Fields(article.HNSummary))
+		fmt.Printf("       HN summary: %d chars, %d words\n", chars, words)
+	} else {
+		fmt.Printf("       HN summary: (none)\n")
+	}
 }
 
 func formatInterestTag(state string) string {

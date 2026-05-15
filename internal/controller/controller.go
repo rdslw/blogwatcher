@@ -821,103 +821,135 @@ func enrichArticleHN(db *storage.Database, article model.Article, opts HackerNew
 }
 
 func enrichSummaryResults(db *storage.Database, results []SummaryResult, opts HackerNewsOptions) ([]SummaryResult, error) {
-	if !opts.Enabled {
-		return results, nil
-	}
-	work := 0
-	for _, r := range results {
-		if needsHackerNewsWork(r.Article, opts.Refresh) {
-			work++
+	if opts.Enabled {
+		work := 0
+		for _, r := range results {
+			if needsHackerNewsWork(r.Article, opts.Refresh) {
+				work++
+			}
 		}
-	}
-	if err := checkHackerNewsLimit(opts, work); err != nil {
-		return nil, err
-	}
-	for i := range results {
-		article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
-		if err != nil {
+		if err := checkHackerNewsLimit(opts, work); err != nil {
 			return nil, err
 		}
-		results[i].Article = article
-		results[i].HackerNews = hn
-		if note != "" {
-			results[i].Warning = appendNote(results[i].Warning, note)
+		for i := range results {
+			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
+			if err != nil {
+				return nil, err
+			}
+			results[i].Article = article
+			results[i].HackerNews = hn
+			if note != "" {
+				results[i].Warning = appendNote(results[i].Warning, note)
+			}
+		}
+	}
+	for i := range results {
+		if results[i].HackerNews == nil {
+			results[i].HackerNews = cachedHackerNewsResult(results[i].Article)
 		}
 	}
 	return results, nil
 }
 
 func enrichSummaryResult(db *storage.Database, result SummaryResult, opts HackerNewsOptions) (SummaryResult, error) {
-	if !opts.Enabled {
-		return result, nil
+	if opts.Enabled {
+		work := 0
+		if needsHackerNewsWork(result.Article, opts.Refresh) {
+			work = 1
+		}
+		if err := checkHackerNewsLimit(opts, work); err != nil {
+			return result, err
+		}
+		article, hn, note, err := enrichArticleHN(db, result.Article, opts)
+		if err != nil {
+			return SummaryResult{}, err
+		}
+		result.Article = article
+		result.HackerNews = hn
+		if note != "" {
+			result.Warning = appendNote(result.Warning, note)
+		}
 	}
-	work := 0
-	if needsHackerNewsWork(result.Article, opts.Refresh) {
-		work = 1
-	}
-	if err := checkHackerNewsLimit(opts, work); err != nil {
-		return result, err
-	}
-	article, hn, note, err := enrichArticleHN(db, result.Article, opts)
-	if err != nil {
-		return SummaryResult{}, err
-	}
-	result.Article = article
-	result.HackerNews = hn
-	if note != "" {
-		result.Warning = appendNote(result.Warning, note)
+	if result.HackerNews == nil {
+		result.HackerNews = cachedHackerNewsResult(result.Article)
 	}
 	return result, nil
 }
 
 func enrichInterestResults(db *storage.Database, results []InterestResult, opts HackerNewsOptions) ([]InterestResult, error) {
-	if !opts.Enabled {
-		return results, nil
-	}
-	work := 0
-	for _, r := range results {
-		if needsHackerNewsWork(r.Article, opts.Refresh) {
-			work++
+	if opts.Enabled {
+		work := 0
+		for _, r := range results {
+			if needsHackerNewsWork(r.Article, opts.Refresh) {
+				work++
+			}
 		}
-	}
-	if err := checkHackerNewsLimit(opts, work); err != nil {
-		return nil, err
-	}
-	for i := range results {
-		article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
-		if err != nil {
+		if err := checkHackerNewsLimit(opts, work); err != nil {
 			return nil, err
 		}
-		results[i].Article = article
-		results[i].HackerNews = hn
-		if note != "" {
-			results[i].Note = appendNote(results[i].Note, note)
+		for i := range results {
+			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
+			if err != nil {
+				return nil, err
+			}
+			results[i].Article = article
+			results[i].HackerNews = hn
+			if note != "" {
+				results[i].Note = appendNote(results[i].Note, note)
+			}
+		}
+	}
+	for i := range results {
+		if results[i].HackerNews == nil {
+			results[i].HackerNews = cachedHackerNewsResult(results[i].Article)
 		}
 	}
 	return results, nil
 }
 
 func enrichInterestResult(db *storage.Database, result InterestResult, opts HackerNewsOptions) (InterestResult, error) {
-	if !opts.Enabled {
-		return result, nil
+	if opts.Enabled {
+		work := 0
+		if needsHackerNewsWork(result.Article, opts.Refresh) {
+			work = 1
+		}
+		if err := checkHackerNewsLimit(opts, work); err != nil {
+			return result, err
+		}
+		article, hn, note, err := enrichArticleHN(db, result.Article, opts)
+		if err != nil {
+			return InterestResult{}, err
+		}
+		result.Article = article
+		result.HackerNews = hn
+		if note != "" {
+			result.Note = appendNote(result.Note, note)
+		}
 	}
-	work := 0
-	if needsHackerNewsWork(result.Article, opts.Refresh) {
-		work = 1
-	}
-	if err := checkHackerNewsLimit(opts, work); err != nil {
-		return result, err
-	}
-	article, hn, note, err := enrichArticleHN(db, result.Article, opts)
-	if err != nil {
-		return InterestResult{}, err
-	}
-	result.Article = article
-	result.HackerNews = hn
-	if note != "" {
-		result.Note = appendNote(result.Note, note)
+	if result.HackerNews == nil {
+		result.HackerNews = cachedHackerNewsResult(result.Article)
 	}
 	return result, nil
+}
+
+// cachedHackerNewsResult builds a *hackernews.Result from cached DB fields so
+// callers can surface previously fetched HN data even when --hn is off.
+// Returns nil when the article has never been checked.
+func cachedHackerNewsResult(article model.Article) *hackernews.Result {
+	if article.HNFetched == nil {
+		return nil
+	}
+	if article.HNItemID == 0 {
+		return &hackernews.Result{NotFound: true, Cached: true}
+	}
+	return &hackernews.Result{
+		ID:                article.HNItemID,
+		URL:               hackernews.ItemURL(article.HNItemID),
+		Points:            article.HNPoints,
+		Comments:          article.HNComments,
+		DiscussionSummary: article.HNSummary,
+		Cached:            true,
+	}
 }
 
 func checkHackerNewsLimit(opts HackerNewsOptions, total int) error {
