@@ -340,7 +340,7 @@ func (e HackerNewsLimitExceededError) Error() string {
 	return fmt.Sprintf("ALERT: %d selected article(s) need Hacker News lookup/summary but --hn-limit is %d. Increase --hn-limit to continue.", e.Total, e.Limit)
 }
 
-func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive bool, refresh bool, opts summarizer.Options, hnOpts ...HackerNewsOptions) (SummaryResult, error) {
+func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive bool, refresh bool, opts summarizer.Options, hnOpts HackerNewsOptions) (SummaryResult, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
 		return SummaryResult{}, err
@@ -365,7 +365,7 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 			engine = "unknown"
 		}
 		result := SummaryResult{Article: *article, BlogName: blogName, Engine: engine, Cached: true}
-		return enrichSummaryResult(db, result, firstHackerNewsOptions(hnOpts))
+		return enrichSummaryResult(db, result, hnOpts)
 	}
 
 	result, err := summarizeArticleFn(article.URL, forceExtractive, opts)
@@ -378,7 +378,7 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 				Cached:   true,
 				Warning:  fmt.Sprintf("Summarization failed: %v. Kept existing RSS summary.", err),
 			}
-			return enrichSummaryResult(db, result, firstHackerNewsOptions(hnOpts))
+			return enrichSummaryResult(db, result, hnOpts)
 		}
 		return SummaryResult{}, fmt.Errorf("failed to summarize article %d: %v", articleID, err)
 	}
@@ -390,14 +390,14 @@ func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive boo
 	article.SummaryEngine = result.Engine
 
 	summaryResult := SummaryResult{Article: *article, BlogName: blogName, Engine: result.Engine, Cached: false, Upgraded: upgraded, Warning: result.Warning}
-	return enrichSummaryResult(db, summaryResult, firstHackerNewsOptions(hnOpts))
+	return enrichSummaryResult(db, summaryResult, hnOpts)
 }
 
-func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, hnOpts ...HackerNewsOptions) ([]SummaryResult, error) {
-	return SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, nil, hnOpts...)
+func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
+	return SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, nil, hnOpts)
 }
 
-func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts ...HackerNewsOptions) ([]SummaryResult, error) {
+func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -462,7 +462,7 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 			dbg.Log("summarize skipped %d cached article(s)", skipped)
 		}
 		dbg.Log("summary phase done: %d processed, %d cached, total %s", processed, skipped, time.Since(phaseStart))
-		return enrichSummaryResults(db, results, firstHackerNewsOptions(hnOpts))
+		return enrichSummaryResults(db, results, hnOpts)
 	}
 
 	type job struct {
@@ -539,10 +539,10 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 		return nil, firstErr
 	}
 
-	return enrichSummaryResults(db, results, firstHackerNewsOptions(hnOpts))
+	return enrichSummaryResults(db, results, hnOpts)
 }
 
-func ClassifyArticleInterest(db *storage.Database, articleID int64, refresh bool, summaryRefresh bool, forceExtractive bool, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts ...HackerNewsOptions) (InterestResult, error) {
+func ClassifyArticleInterest(db *storage.Database, articleID int64, refresh bool, summaryRefresh bool, forceExtractive bool, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts HackerNewsOptions) (InterestResult, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
 		return InterestResult{}, err
@@ -564,14 +564,14 @@ func ClassifyArticleInterest(db *storage.Database, articleID int64, refresh bool
 	if err != nil {
 		return result, err
 	}
-	return enrichInterestResult(db, result, firstHackerNewsOptions(hnOpts))
+	return enrichInterestResult(db, result, hnOpts)
 }
 
-func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts ...HackerNewsOptions) ([]InterestResult, error) {
-	return ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts...)
+func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts HackerNewsOptions) ([]InterestResult, error) {
+	return ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts)
 }
 
-func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts ...HackerNewsOptions) ([]InterestResult, error) {
+func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -646,7 +646,7 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 			dbg.Log("classify skipped %d article(s) (cached/no prompt)", skipped)
 		}
 		dbg.Log("interest phase done: %d processed, %d cached/skipped, total %s", processed, skipped, time.Since(phaseStart))
-		return enrichInterestResults(db, results, firstHackerNewsOptions(hnOpts))
+		return enrichInterestResults(db, results, hnOpts)
 	}
 
 	type job struct {
@@ -729,7 +729,7 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 		return nil, firstErr
 	}
 
-	return enrichInterestResults(db, results, firstHackerNewsOptions(hnOpts))
+	return enrichInterestResults(db, results, hnOpts)
 }
 
 func summarizeOne(db *storage.Database, article model.Article, blogName string, forceExtractive bool, refresh bool, opts summarizer.Options) (SummaryResult, error) {
@@ -793,26 +793,56 @@ func summaryDebugTag(r SummaryResult) string {
 	return ""
 }
 
-func firstHackerNewsOptions(options []HackerNewsOptions) HackerNewsOptions {
-	if len(options) == 0 {
-		return HackerNewsOptions{}
+// enrichArticleHN fetches HN data for one article and persists it when fresh.
+// It returns the updated article, the HN result, an optional transient note
+// (e.g. when the HN lookup itself failed), and a non-nil error only for
+// hard failures the caller must propagate (e.g. cache write failure).
+func enrichArticleHN(db *storage.Database, article model.Article, opts HackerNewsOptions) (model.Article, *hackernews.Result, string, error) {
+	hn, err := enrichHackerNewsFn(article, opts.Options, opts.Refresh)
+	if err != nil {
+		return article, nil, fmt.Sprintf("HN lookup failed: %v", err), nil
 	}
-	return options[0]
+	if hn != nil && !hn.Cached {
+		fetched := time.Now().UTC()
+		summary := hn.DiscussionSummary
+		if hn.Warning != "" {
+			summary = ""
+		}
+		if err := updateHackerNewsFn(db, article.ID, hn.ID, hn.Points, hn.Comments, summary, fetched); err != nil {
+			return article, nil, "", fmt.Errorf("failed to cache HN data for article %d: %w", article.ID, err)
+		}
+		article.HNItemID = hn.ID
+		article.HNPoints = hn.Points
+		article.HNComments = hn.Comments
+		article.HNSummary = summary
+		article.HNFetched = &fetched
+	}
+	return article, hn, "", nil
 }
 
 func enrichSummaryResults(db *storage.Database, results []SummaryResult, opts HackerNewsOptions) ([]SummaryResult, error) {
 	if !opts.Enabled {
 		return results, nil
 	}
-	if err := checkHackerNewsLimit(summaryArticles(results), opts); err != nil {
+	work := 0
+	for _, r := range results {
+		if needsHackerNewsWork(r.Article, opts.Refresh) {
+			work++
+		}
+	}
+	if err := checkHackerNewsLimit(opts, work); err != nil {
 		return nil, err
 	}
 	for i := range results {
-		result, err := enrichSummaryResult(db, results[i], opts)
+		article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
 		if err != nil {
 			return nil, err
 		}
-		results[i] = result
+		results[i].Article = article
+		results[i].HackerNews = hn
+		if note != "" {
+			results[i].Warning = appendNote(results[i].Warning, note)
+		}
 	}
 	return results, nil
 }
@@ -821,29 +851,21 @@ func enrichSummaryResult(db *storage.Database, result SummaryResult, opts Hacker
 	if !opts.Enabled {
 		return result, nil
 	}
-	if err := checkHackerNewsLimit([]model.Article{result.Article}, opts); err != nil {
+	work := 0
+	if needsHackerNewsWork(result.Article, opts.Refresh) {
+		work = 1
+	}
+	if err := checkHackerNewsLimit(opts, work); err != nil {
 		return result, err
 	}
-	hn, err := enrichHackerNewsFn(result.Article, opts.Options, opts.Refresh)
+	article, hn, note, err := enrichArticleHN(db, result.Article, opts)
 	if err != nil {
-		result.Warning = appendNote(result.Warning, fmt.Sprintf("HN lookup failed: %v", err))
-		return result, nil
+		return SummaryResult{}, err
 	}
+	result.Article = article
 	result.HackerNews = hn
-	if hn != nil && !hn.Cached {
-		fetched := time.Now().UTC()
-		summary := hn.DiscussionSummary
-		if hn.Warning != "" {
-			summary = ""
-		}
-		if err := updateHackerNewsFn(db, result.Article.ID, hn.ID, hn.Points, hn.Comments, summary, fetched); err != nil {
-			return SummaryResult{}, fmt.Errorf("failed to cache HN data for article %d: %w", result.Article.ID, err)
-		}
-		result.Article.HNItemID = hn.ID
-		result.Article.HNPoints = hn.Points
-		result.Article.HNComments = hn.Comments
-		result.Article.HNSummary = summary
-		result.Article.HNFetched = &fetched
+	if note != "" {
+		result.Warning = appendNote(result.Warning, note)
 	}
 	return result, nil
 }
@@ -852,15 +874,25 @@ func enrichInterestResults(db *storage.Database, results []InterestResult, opts 
 	if !opts.Enabled {
 		return results, nil
 	}
-	if err := checkHackerNewsLimit(interestArticles(results), opts); err != nil {
+	work := 0
+	for _, r := range results {
+		if needsHackerNewsWork(r.Article, opts.Refresh) {
+			work++
+		}
+	}
+	if err := checkHackerNewsLimit(opts, work); err != nil {
 		return nil, err
 	}
 	for i := range results {
-		result, err := enrichInterestResult(db, results[i], opts)
+		article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
 		if err != nil {
 			return nil, err
 		}
-		results[i] = result
+		results[i].Article = article
+		results[i].HackerNews = hn
+		if note != "" {
+			results[i].Note = appendNote(results[i].Note, note)
+		}
 	}
 	return results, nil
 }
@@ -869,63 +901,30 @@ func enrichInterestResult(db *storage.Database, result InterestResult, opts Hack
 	if !opts.Enabled {
 		return result, nil
 	}
-	if err := checkHackerNewsLimit([]model.Article{result.Article}, opts); err != nil {
+	work := 0
+	if needsHackerNewsWork(result.Article, opts.Refresh) {
+		work = 1
+	}
+	if err := checkHackerNewsLimit(opts, work); err != nil {
 		return result, err
 	}
-	hn, err := enrichHackerNewsFn(result.Article, opts.Options, opts.Refresh)
+	article, hn, note, err := enrichArticleHN(db, result.Article, opts)
 	if err != nil {
-		result.Note = appendNote(result.Note, fmt.Sprintf("HN lookup failed: %v", err))
-		return result, nil
+		return InterestResult{}, err
 	}
+	result.Article = article
 	result.HackerNews = hn
-	if hn != nil && !hn.Cached {
-		fetched := time.Now().UTC()
-		summary := hn.DiscussionSummary
-		if hn.Warning != "" {
-			summary = ""
-		}
-		if err := updateHackerNewsFn(db, result.Article.ID, hn.ID, hn.Points, hn.Comments, summary, fetched); err != nil {
-			return InterestResult{}, fmt.Errorf("failed to cache HN data for article %d: %w", result.Article.ID, err)
-		}
-		result.Article.HNItemID = hn.ID
-		result.Article.HNPoints = hn.Points
-		result.Article.HNComments = hn.Comments
-		result.Article.HNSummary = summary
-		result.Article.HNFetched = &fetched
+	if note != "" {
+		result.Note = appendNote(result.Note, note)
 	}
 	return result, nil
 }
 
-func summaryArticles(results []SummaryResult) []model.Article {
-	articles := make([]model.Article, 0, len(results))
-	for _, result := range results {
-		articles = append(articles, result.Article)
-	}
-	return articles
-}
-
-func interestArticles(results []InterestResult) []model.Article {
-	articles := make([]model.Article, 0, len(results))
-	for _, result := range results {
-		articles = append(articles, result.Article)
-	}
-	return articles
-}
-
-func checkHackerNewsLimit(articles []model.Article, opts HackerNewsOptions) error {
-	if !opts.Enabled || opts.Limit < 0 {
+func checkHackerNewsLimit(opts HackerNewsOptions, total int) error {
+	if !opts.Enabled || opts.Limit < 0 || total <= opts.Limit {
 		return nil
 	}
-	var total int
-	for _, article := range articles {
-		if needsHackerNewsWork(article, opts.Refresh) {
-			total++
-		}
-	}
-	if total > opts.Limit {
-		return HackerNewsLimitExceededError{Limit: opts.Limit, Total: total}
-	}
-	return nil
+	return HackerNewsLimitExceededError{Limit: opts.Limit, Total: total}
 }
 
 func needsHackerNewsWork(article model.Article, refresh bool) bool {

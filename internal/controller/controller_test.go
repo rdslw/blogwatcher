@@ -379,7 +379,7 @@ func TestSummarizeArticlesDoesNotCountCachedSummariesAgainstLimit(t *testing.T) 
 		}
 	}
 
-	results, err := SummarizeArticles(db, false, "", false, false, 2, 1, summarizer.Options{})
+	results, err := SummarizeArticles(db, false, "", false, false, 2, 1, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize articles: %v", err)
 	}
@@ -746,7 +746,7 @@ func TestSummarizeArticlesReturnsCacheWriteFailures(t *testing.T) {
 		return errors.New("write failed")
 	}
 
-	_, err = SummarizeArticles(db, false, "", false, false, 10, 2, summarizer.Options{})
+	_, err = SummarizeArticles(db, false, "", false, false, 10, 2, summarizer.Options{}, HackerNewsOptions{})
 	if err == nil {
 		t.Fatalf("expected cache write error")
 	}
@@ -782,7 +782,7 @@ func TestSummarizeArticlesPropagatesFallbackWarningAndActualEngine(t *testing.T)
 		}, nil
 	}
 
-	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{OpenAIAPIKey: "configured"})
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{OpenAIAPIKey: "configured"}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize articles: %v", err)
 	}
@@ -846,7 +846,7 @@ func TestClassifyArticleInterestAutoGeneratesSummaryAndCachesResult(t *testing.T
 		Blogs: map[string]config.InterestBlogConfig{
 			"Tech Blog": {InterestPrompt: "Prefer compiler posts."},
 		},
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify article interest: %v", err)
 	}
@@ -906,7 +906,7 @@ func TestClassifyArticlesInterestDoesNotCountCachedResultsAgainstLimit(t *testin
 
 	results, err := ClassifyArticlesInterest(db, false, "", false, false, false, 2, 1, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer technical posts.",
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify articles interest: %v", err)
 	}
@@ -1000,7 +1000,7 @@ func TestClassifyArticlesInterestReturnsCacheWriteFailures(t *testing.T) {
 
 	_, err = ClassifyArticlesInterest(db, false, "", false, false, false, 10, 1, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Hide low-signal posts.",
-	})
+	}, HackerNewsOptions{})
 	if err == nil {
 		t.Fatalf("expected cache write error")
 	}
@@ -1047,7 +1047,7 @@ func TestClassifyArticleInterestRefreshSummaryBypassesCachedInterest(t *testing.
 
 	result, err := ClassifyArticleInterest(db, article.ID, false, true, false, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer fresh technical writeups.",
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify article interest: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestClassifyArticleInterestSkipsWhenPromptMissing(t *testing.T) {
 		return interest.Result{}, nil
 	}
 
-	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{})
+	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify article interest: %v", err)
 	}
@@ -1140,7 +1140,7 @@ func TestClassifyArticleInterestSkipsWhenClassificationFails(t *testing.T) {
 
 	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer technical posts.",
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify article interest: %v", err)
 	}
@@ -1205,7 +1205,7 @@ func TestClassifyArticlesInterestSkipsSummaryFailuresAndContinues(t *testing.T) 
 
 	results, err := ClassifyArticlesInterest(db, false, "", false, false, false, 10, 1, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer technical posts.",
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify articles interest: %v", err)
 	}
@@ -1283,7 +1283,7 @@ func TestSummarizeArticlePreservesRSSSummaryOnFailure(t *testing.T) {
 		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
 	}
 
-	result, err := SummarizeArticle(db, article.ID, false, true, summarizer.Options{})
+	result, err := SummarizeArticle(db, article.ID, false, true, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize article: %v", err)
 	}
@@ -1328,7 +1328,7 @@ func TestSummarizeArticlesPreservesRSSSummaryOnFailure(t *testing.T) {
 		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
 	}
 
-	results, err := SummarizeArticles(db, false, "", false, true, 10, 1, summarizer.Options{})
+	results, err := SummarizeArticles(db, false, "", false, true, 10, 1, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize articles: %v", err)
 	}
@@ -1382,7 +1382,7 @@ func TestSummarizeArticleLongRSSTreatedAsCached(t *testing.T) {
 		return summarizer.Result{}, nil
 	}
 
-	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize article: %v", err)
 	}
@@ -1421,7 +1421,7 @@ func TestSummarizeArticleShortRSSAutoUpgraded(t *testing.T) {
 		return summarizer.Result{Summary: "Full LLM summary of the article.", Engine: summarizer.EngineOpenAI}, nil
 	}
 
-	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize article: %v", err)
 	}
@@ -1467,7 +1467,7 @@ func TestSummarizeArticleShortRSSPreservedOnFailure(t *testing.T) {
 		return summarizer.Result{}, fmt.Errorf("failed to fetch article: status 403")
 	}
 
-	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{})
+	result, err := SummarizeArticle(db, article.ID, false, false, summarizer.Options{}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("summarize article: %v", err)
 	}
@@ -1516,7 +1516,7 @@ func TestClassifyInterestAutoUpgradesShortRSSSummary(t *testing.T) {
 
 	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer technical posts.",
-	})
+	}, HackerNewsOptions{})
 	if err != nil {
 		t.Fatalf("classify article interest: %v", err)
 	}

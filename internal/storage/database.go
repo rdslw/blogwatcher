@@ -95,71 +95,23 @@ func (db *Database) init() error {
 		return err
 	}
 
-	// Migration: add summary column
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN summary TEXT DEFAULT ''`)
-	if err != nil {
-		// Ignore "duplicate column" error (column already exists)
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
+	// Migrations: add columns to articles. SQLite has no IF NOT EXISTS for
+	// ADD COLUMN, so we ignore the "duplicate column" error per statement.
+	migrations := []string{
+		`ALTER TABLE articles ADD COLUMN summary TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN summary_engine TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN interest_state TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN interest_reason TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN interest_engine TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN interest_judged_at TIMESTAMP`,
+		`ALTER TABLE articles ADD COLUMN hn_item_id INTEGER DEFAULT 0`,
+		`ALTER TABLE articles ADD COLUMN hn_points INTEGER DEFAULT 0`,
+		`ALTER TABLE articles ADD COLUMN hn_comments INTEGER DEFAULT 0`,
+		`ALTER TABLE articles ADD COLUMN hn_summary TEXT DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN hn_fetched TIMESTAMP`,
 	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN summary_engine TEXT DEFAULT ''`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN interest_state TEXT DEFAULT ''`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN interest_reason TEXT DEFAULT ''`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN interest_engine TEXT DEFAULT ''`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN interest_judged_at TIMESTAMP`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_item_id INTEGER DEFAULT 0`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_points INTEGER DEFAULT 0`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_comments INTEGER DEFAULT 0`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_summary TEXT DEFAULT ''`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return err
-		}
-	}
-	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_fetched TIMESTAMP`)
-	if err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
+	for _, stmt := range migrations {
+		if _, err := db.conn.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return err
 		}
 	}

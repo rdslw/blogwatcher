@@ -377,11 +377,8 @@ type chatResponse struct {
 }
 
 func summarizeWithLLM(text string, apiKey string, opts Options) (string, error) {
-	return summarizeTextWithSystemPrompt(text, apiKey, opts.SystemPrompt, opts)
-}
-
-func SummarizeTextWithPrompt(text string, prompt string, opts Options) (Result, error) {
-	return SummarizeTextWithPromptLimit(text, prompt, opts, opts.MaxRequestBytes)
+	summary, _, err := callOpenAI(text, apiKey, opts.SystemPrompt, opts.Model, opts.MaxRequestBytes)
+	return summary, err
 }
 
 func SummarizeTextWithPromptLimit(text string, prompt string, opts Options, maxRequestBytes int) (Result, error) {
@@ -389,7 +386,7 @@ func SummarizeTextWithPromptLimit(text string, prompt string, opts Options, maxR
 	if apiKey == "" {
 		return Result{}, fmt.Errorf("OPENAI_API_KEY or summary.openai_api_key is required")
 	}
-	summary, truncated, err := summarizeTextWithSystemPromptLimit(text, apiKey, prompt, opts, maxRequestBytes)
+	summary, truncated, err := callOpenAI(text, apiKey, prompt, opts.Model, maxRequestBytes)
 	if err != nil {
 		return Result{}, err
 	}
@@ -400,12 +397,7 @@ func SummarizeTextWithPromptLimit(text string, prompt string, opts Options, maxR
 	return result, nil
 }
 
-func summarizeTextWithSystemPrompt(text string, apiKey string, systemPrompt string, opts Options) (string, error) {
-	summary, _, err := summarizeTextWithSystemPromptLimit(text, apiKey, systemPrompt, opts, opts.MaxRequestBytes)
-	return summary, err
-}
-
-func summarizeTextWithSystemPromptLimit(text string, apiKey string, systemPrompt string, opts Options, maxRequestBytes int) (string, bool, error) {
+func callOpenAI(text string, apiKey string, systemPrompt string, model string, maxRequestBytes int) (string, bool, error) {
 	if maxRequestBytes <= 0 {
 		maxRequestBytes = config.DefaultMaxRequestBytes
 	}
@@ -415,7 +407,6 @@ func summarizeTextWithSystemPromptLimit(text string, apiKey string, systemPrompt
 		truncated = true
 	}
 
-	model := opts.Model
 	if model == "" {
 		model = config.DefaultModel
 	}
