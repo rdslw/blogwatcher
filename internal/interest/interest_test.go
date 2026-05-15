@@ -1,6 +1,7 @@
 package interest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/rdslw/blogwatcher/internal/model"
@@ -28,5 +29,16 @@ func TestParseClassificationRejectsInvalidState(t *testing.T) {
 func TestClassifySummaryRejectsEmptyPrompt(t *testing.T) {
 	if _, err := ClassifySummary("Blog", "Summary", "", Options{}); err == nil {
 		t.Fatalf("expected empty prompt error")
+	}
+}
+
+func TestBuildUserPromptUsesTruncatedSummaryInput(t *testing.T) {
+	summary := truncateUTF8ToBytes("abcdef", 3)
+	prompt := buildUserPrompt("Blog", summary, "Prefer useful posts.")
+	if !strings.Contains(prompt, "Article summary:\nabc") {
+		t.Fatalf("expected truncated summary in prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "abcdef") {
+		t.Fatalf("expected original summary to be truncated")
 	}
 }

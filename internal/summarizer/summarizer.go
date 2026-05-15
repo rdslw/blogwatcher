@@ -27,10 +27,12 @@ const (
 )
 
 type Options struct {
-	OpenAIAPIKey    string
-	Model           string
-	SystemPrompt    string
-	MaxRequestBytes int
+	OpenAIAPIKey              string
+	Model                     string
+	SystemPrompt              string
+	MaxRequestBytes           int
+	HackerNewsPrompt          string
+	HackerNewsMaxRequestBytes int
 }
 
 type Result struct {
@@ -48,10 +50,12 @@ const (
 
 func OptionsFromConfig(cfg config.SummaryConfig) Options {
 	return Options{
-		OpenAIAPIKey:    cfg.OpenAIAPIKey,
-		Model:           cfg.Model,
-		SystemPrompt:    cfg.SystemPrompt,
-		MaxRequestBytes: cfg.MaxRequestBytes,
+		OpenAIAPIKey:              cfg.OpenAIAPIKey,
+		Model:                     cfg.Model,
+		SystemPrompt:              cfg.SystemPrompt,
+		MaxRequestBytes:           cfg.MaxRequestBytes,
+		HackerNewsPrompt:          cfg.HackerNewsPrompt,
+		HackerNewsMaxRequestBytes: cfg.HackerNewsMaxRequestBytes,
 	}
 }
 
@@ -373,19 +377,48 @@ type chatResponse struct {
 }
 
 func summarizeWithLLM(text string, apiKey string, opts Options) (string, error) {
-	maxChars := opts.MaxRequestBytes
-	if maxChars <= 0 {
-		maxChars = config.DefaultMaxRequestBytes
+	return summarizeTextWithSystemPrompt(text, apiKey, opts.SystemPrompt, opts)
+}
+
+func SummarizeTextWithPrompt(text string, prompt string, opts Options) (Result, error) {
+	return SummarizeTextWithPromptLimit(text, prompt, opts, opts.MaxRequestBytes)
+}
+
+func SummarizeTextWithPromptLimit(text string, prompt string, opts Options, maxRequestBytes int) (Result, error) {
+	apiKey := resolveAPIKey(opts)
+	if apiKey == "" {
+		return Result{}, fmt.Errorf("OPENAI_API_KEY or summary.openai_api_key is required")
 	}
-	if len(text) > maxChars {
-		text = truncateUTF8ToBytes(text, maxChars)
+	summary, truncated, err := summarizeTextWithSystemPromptLimit(text, apiKey, prompt, opts, maxRequestBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{Summary: summary, Engine: EngineOpenAI}
+	if truncated {
+		result.Warning = fmt.Sprintf("LLM input truncated to %d bytes.", maxRequestBytes)
+	}
+	return result, nil
+}
+
+func summarizeTextWithSystemPrompt(text string, apiKey string, systemPrompt string, opts Options) (string, error) {
+	summary, _, err := summarizeTextWithSystemPromptLimit(text, apiKey, systemPrompt, opts, opts.MaxRequestBytes)
+	return summary, err
+}
+
+func summarizeTextWithSystemPromptLimit(text string, apiKey string, systemPrompt string, opts Options, maxRequestBytes int) (string, bool, error) {
+	if maxRequestBytes <= 0 {
+		maxRequestBytes = config.DefaultMaxRequestBytes
+	}
+	truncated := false
+	if len(text) > maxRequestBytes {
+		text = truncateUTF8ToBytes(text, maxRequestBytes)
+		truncated = true
 	}
 
 	model := opts.Model
 	if model == "" {
 		model = config.DefaultModel
 	}
-	systemPrompt := opts.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = config.DefaultSystemPrompt
 	}
@@ -400,12 +433,12 @@ func summarizeWithLLM(text string, apiKey string, opts Options) (string, error) 
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %v", err)
+		return "", truncated, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	req, err := http.NewRequest("POST", openAIAPIURL, bytes.NewReader(jsonData))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %v", err)
+		return "", truncated, fmt.Errorf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
@@ -413,27 +446,27 @@ func summarizeWithLLM(text string, apiKey string, opts Options) (string, error) 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("OpenAI API request failed: %v", err)
+		return "", truncated, fmt.Errorf("OpenAI API request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read OpenAI response: %v", err)
+		return "", truncated, fmt.Errorf("failed to read OpenAI response: %v", err)
 	}
 
 	var chatResp chatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return "", fmt.Errorf("failed to parse OpenAI response: %v", err)
+		return "", truncated, fmt.Errorf("failed to parse OpenAI response: %v", err)
 	}
 
 	if chatResp.Error != nil {
-		return "", fmt.Errorf("OpenAI API error: %s", chatResp.Error.Message)
+		return "", truncated, fmt.Errorf("OpenAI API error: %s", chatResp.Error.Message)
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("OpenAI returned no choices")
+		return "", truncated, fmt.Errorf("OpenAI returned no choices")
 	}
 
-	return strings.TrimSpace(chatResp.Choices[0].Message.Content), nil
+	return strings.TrimSpace(chatResp.Choices[0].Message.Content), truncated, nil
 }

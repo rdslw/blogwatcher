@@ -47,7 +47,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher export` | Export blog definitions as portable shell script |
 | `blogwatcher skill` | Print this skill document |
 
-Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`
+Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`, `--hn`, `--hn-refresh`, `--hn-limit N`
 Common flags for `articles` and `interest`: `--summary` (show cached summary text)
 Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
 Scan-specific: `--feed-discovery` (try RSS/Atom discovery even for blogs with a scrape selector)
@@ -66,7 +66,9 @@ The `summary` command generates a short text summary for each article.
 - **Fallback:** if LLM call fails, falls back to snippet automatically.
 - **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
 - **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is stripped of HTML and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
-- **Cost control:** `--limit N` (default 50) caps how many articles are summarized per invocation. `--workers N` controls concurrency.
+- **Hacker News enrichment:** `--hn` or `[summary].hackernews = true` searches Algolia HN for the article URL, fetches the matching discussion, stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and `hn_fetched`, then prints HN points/comment count. With `--verbose`, it prints the HN discussion summary.
+- **HN cache/refresh:** `--hn` reuses cached HN summaries and generates only missing ones. If no HN discussion is found, `hn_item_id = 0` and `hn_fetched` record the check, but future `--hn` runs still retry. `--hn-refresh` refreshes HN metadata and regenerates HN summaries.
+- **Cost control:** `--limit N` (default 50) caps article summaries only. `--hn-limit N` (default 30) caps new HN discussion summaries. `--workers N` controls article summary/classification concurrency.
 
 ### Summary Configuration
 
@@ -76,6 +78,9 @@ openai_api_key = "sk-..."       # or set OPENAI_API_KEY env var
 model = "gpt-5.4-nano"          # default model
 system_prompt = "..."            # custom summarizer prompt
 max_request_bytes = 40960        # max article text sent to LLM
+hackernews_max_request_bytes = 204800 # max HN Path ID text sent to LLM
+hackernews = false               # enable --hn behavior without passing --hn
+hackernews_prompt = "..."        # custom HN discussion summary prompt
 ```
 
 ## Interest Classification Pipeline
@@ -85,6 +90,7 @@ The `interest` command classifies each article as **prefer**, **normal**, or **h
 **Flow:** ensure summary exists → build prompt with blog name + classification policy + summary → LLM returns JSON `{"state": "...", "reason": "..."}`.
 
 - **Dependency:** interest classification always requires a summary. If missing, `interest` auto-generates one first.
+- **Input limit:** `[interest].max_request_bytes` defaults to 12288 and caps the cached summary text sent to the classifier.
 - **Labels:**
   - `prefer` — high signal, surface to user
   - `normal` — worth noting, not urgent
@@ -152,12 +158,15 @@ blogwatcher read 42 99               # mark specific articles as read
 
 Group articles by blog. Use interest labels and summaries for context.
 
+If the user asks for community reaction, controversy, external validation, or Hacker News context, use `blogwatcher summary --hn` or `blogwatcher interest --hn`. This reuses cached HN summaries when present and only generates missing ones, capped by `--hn-limit` (default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
+
 ```
 📰 Blogwatcher — N new articles
 
 ⭐ **blogname** (2 prefer, 1 normal):
 • [prefer] Article Title — https://example.com/...
   Two-sentence summary from cached data.
+  HN, if shown: points/comments plus a brief discussion summary.
 • [normal] Another Article — https://example.com/...
   Summary here.
 

@@ -7,6 +7,18 @@ func TestDefaultConfigLeavesInterestPromptEmpty(t *testing.T) {
 	if cfg.Interest.InterestPrompt != "" {
 		t.Fatalf("expected default interest prompt to be empty, got %q", cfg.Interest.InterestPrompt)
 	}
+	if cfg.Summary.HackerNews {
+		t.Fatalf("expected Hacker News enrichment disabled by default")
+	}
+	if cfg.Summary.HackerNewsPrompt == "" {
+		t.Fatalf("expected default Hacker News prompt")
+	}
+	if cfg.Summary.HackerNewsMaxRequestBytes != DefaultHackerNewsMaxRequestBytes {
+		t.Fatalf("expected default HN max request bytes %d, got %d", DefaultHackerNewsMaxRequestBytes, cfg.Summary.HackerNewsMaxRequestBytes)
+	}
+	if cfg.Interest.MaxRequestBytes != DefaultInterestMaxRequestBytes {
+		t.Fatalf("expected default interest max request bytes %d, got %d", DefaultInterestMaxRequestBytes, cfg.Interest.MaxRequestBytes)
+	}
 }
 
 func TestInterestPromptForBlogUsesOverrideWhenPresent(t *testing.T) {

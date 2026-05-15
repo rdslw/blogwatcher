@@ -14,6 +14,7 @@ import (
 	"github.com/rdslw/blogwatcher/internal/config"
 	"github.com/rdslw/blogwatcher/internal/controller"
 	"github.com/rdslw/blogwatcher/internal/debug"
+	"github.com/rdslw/blogwatcher/internal/hackernews"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/scanner"
 	"github.com/rdslw/blogwatcher/internal/skill"
@@ -534,6 +535,9 @@ func newSummaryCommand() *cobra.Command {
 	var verbose bool
 	var debugFlag bool
 	var sortFlag string
+	var hackerNews bool
+	var hackerNewsRefresh bool
+	var hackerNewsLimit int
 
 	cmd := &cobra.Command{
 		Use:   "summary [article_id]",
@@ -558,6 +562,14 @@ Configuration via ~/.blogwatcher/config.toml:
   model = "gpt-5.4-nano"           # OpenAI model to use
   system_prompt = "..."            # Custom system prompt
   max_request_bytes = 40960        # Max article text sent to LLM (bytes)
+  hackernews_max_request_bytes = 204800
+  hackernews = false               # Enable --hn behavior without passing --hn
+  hackernews_prompt = "..."        # Custom HN discussion summary prompt
+
+HN enrichment uses cached HN summaries when present. Missing HN summaries are
+generated only for selected articles and are capped by --hn-limit (default 30).
+Use --hn-refresh to refresh HN metadata and regenerate HN summaries. Large HN
+threads are truncated to hackernews_max_request_bytes before the LLM call.
 
 Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
@@ -587,6 +599,15 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 			if modelFlag != "" {
 				opts.Model = modelFlag
 			}
+			if hackerNewsLimit < 0 {
+				return fmt.Errorf("--hn-limit must be 0 or greater")
+			}
+			hnOpts := controller.HackerNewsOptions{
+				Enabled: hackerNews || hackerNewsRefresh || cfg.Summary.HackerNews,
+				Refresh: hackerNewsRefresh,
+				Limit:   hackerNewsLimit,
+				Options: opts,
+			}
 
 			db, err := storage.OpenDatabase("")
 			if err != nil {
@@ -599,14 +620,14 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				if err != nil {
 					return err
 				}
-				result, err := controller.SummarizeArticle(db, articleID, forceExtractive, refresh, opts)
+				result, err := controller.SummarizeArticle(db, articleID, forceExtractive, refresh, opts, hnOpts)
 				if err != nil {
 					printError(err)
 					return markError(err)
 				}
 				printSummaryResult(result, verbose)
 			} else {
-				results, err := controller.SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, dbg)
+				results, err := controller.SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
 				if err != nil {
 					printError(err)
 					return markError(err)
@@ -644,6 +665,9 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
+	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
 	return cmd
 }
 
@@ -660,6 +684,9 @@ func newInterestCommand() *cobra.Command {
 	var showSummary bool
 	var debugFlag bool
 	var sortFlag string
+	var hackerNews bool
+	var hackerNewsRefresh bool
+	var hackerNewsLimit int
 
 	cmd := &cobra.Command{
 		Use:   "interest [article_id]",
@@ -682,10 +709,14 @@ Configuration via ~/.blogwatcher/config.toml:
   [interest]
   model = "gpt-5.4-nano"
   system_prompt = "..."
+  max_request_bytes = 12288
   interest_prompt = "Prefer systems posts with concrete benchmarks and hide generic launch posts."
 
   [interest.blogs."Tech Blog"]
-  interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."`,
+  interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."
+
+Use --hn or [summary].hackernews=true to add cached or missing Hacker News data.
+Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regenerates them.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
@@ -710,6 +741,15 @@ Configuration via ~/.blogwatcher/config.toml:
 			if modelFlag != "" {
 				interestCfg.Model = modelFlag
 			}
+			if hackerNewsLimit < 0 {
+				return fmt.Errorf("--hn-limit must be 0 or greater")
+			}
+			hnOpts := controller.HackerNewsOptions{
+				Enabled: hackerNews || hackerNewsRefresh || cfg.Summary.HackerNews,
+				Refresh: hackerNewsRefresh,
+				Limit:   hackerNewsLimit,
+				Options: summaryOpts,
+			}
 
 			db, err := storage.OpenDatabase("")
 			if err != nil {
@@ -722,7 +762,7 @@ Configuration via ~/.blogwatcher/config.toml:
 				if err != nil {
 					return err
 				}
-				result, err := controller.ClassifyArticleInterest(db, articleID, refresh, refreshSummary, forceExtractive, summaryOpts, interestCfg)
+				result, err := controller.ClassifyArticleInterest(db, articleID, refresh, refreshSummary, forceExtractive, summaryOpts, interestCfg, hnOpts)
 				if err != nil {
 					printError(err)
 					return markError(err)
@@ -731,7 +771,7 @@ Configuration via ~/.blogwatcher/config.toml:
 				return nil
 			}
 
-			results, err := controller.ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg)
+			results, err := controller.ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
 			if err != nil {
 				printError(err)
 				return markError(err)
@@ -771,6 +811,9 @@ Configuration via ~/.blogwatcher/config.toml:
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
+	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
 	return cmd
 }
 
@@ -796,6 +839,7 @@ func printSummaryResult(result controller.SummaryResult, verbose bool) {
 	if result.Warning != "" {
 		color.New(color.FgYellow).Printf("       Note: %s\n", result.Warning)
 	}
+	printHackerNewsResult(result.HackerNews, verbose)
 	summarizerLabel := result.Engine
 	if result.Cached {
 		summarizerLabel += " (cached)"
@@ -836,13 +880,14 @@ func printInterestResult(result controller.InterestResult, verbose bool, showSum
 	}
 	if result.Skipped {
 		fmt.Printf("       Interest: (not classified)\n")
-		if result.Note != "" {
-			color.New(color.FgYellow).Printf("       Note: %s\n", result.Note)
-		}
+	}
+	if result.Note != "" {
+		color.New(color.FgYellow).Printf("       Note: %s\n", result.Note)
 	}
 	if result.Article.InterestReason != "" {
 		fmt.Printf("       Reason: %s\n", result.Article.InterestReason)
 	}
+	printHackerNewsResult(result.HackerNews, verbose)
 	if verbose {
 		classifierLabel := result.Engine
 		if result.Cached {
@@ -867,6 +912,27 @@ func printInterestResult(result controller.InterestResult, verbose bool, showSum
 		fmt.Printf("       Summary: %s\n", result.Article.Summary)
 	}
 	fmt.Println()
+}
+
+func printHackerNewsResult(result *hackernews.Result, verbose bool) {
+	if result == nil {
+		return
+	}
+	if result.NotFound {
+		fmt.Printf("       HN: no discussion found\n")
+		return
+	}
+	label := fmt.Sprintf("%s, %d points, %d comments", result.URL, result.Points, result.Comments)
+	if result.Cached {
+		label += " (cached)"
+	}
+	fmt.Printf("       HN: %s\n", label)
+	if verbose && result.DiscussionSummary != "" {
+		fmt.Printf("       HN summary: %s\n", result.DiscussionSummary)
+	}
+	if verbose && result.Warning != "" {
+		color.New(color.FgYellow).Printf("       HN note: %s\n", result.Warning)
+	}
 }
 
 func printScanResult(result scanner.ScanResult) {

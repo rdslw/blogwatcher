@@ -385,6 +385,54 @@ func TestArticleInterestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestArticleHackerNewsRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "blogwatcher.db")
+	db, err := OpenDatabase(path)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{
+		BlogID: blog.ID,
+		Title:  "Title",
+		URL:    "https://example.com/1",
+	})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	fetchedAt := time.Date(2026, 2, 3, 4, 5, 6, 7, time.UTC)
+	if err := db.UpdateArticleHackerNews(article.ID, 123, 45, 6, "HN summary", fetchedAt); err != nil {
+		t.Fatalf("update article hackernews: %v", err)
+	}
+
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched == nil {
+		t.Fatalf("expected article")
+	}
+	if fetched.HNItemID != 123 {
+		t.Fatalf("expected HN item ID round-trip, got %d", fetched.HNItemID)
+	}
+	if fetched.HNPoints != 45 || fetched.HNComments != 6 {
+		t.Fatalf("expected HN points/comments round-trip, got %d/%d", fetched.HNPoints, fetched.HNComments)
+	}
+	if fetched.HNSummary != "HN summary" {
+		t.Fatalf("expected HN summary round-trip, got %q", fetched.HNSummary)
+	}
+	if fetched.HNFetched == nil || !fetched.HNFetched.Equal(fetchedAt) {
+		t.Fatalf("expected HN fetched time round-trip")
+	}
+}
+
 func TestListArticlesFiltersAndOrdering(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")

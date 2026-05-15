@@ -68,6 +68,46 @@ func TestSummarizeWithLLMRespectsMaxRequestBytes(t *testing.T) {
 	}
 }
 
+func TestSummarizeTextWithPromptLimitReportsTruncation(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	var requestBody chatRequest
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != openAIAPIURL {
+			t.Fatalf("unexpected request URL: %s", req.URL.String())
+		}
+		if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"choices":[{"message":{"content":"ok"}}]}`)),
+			Request:    req,
+		}, nil
+	})
+
+	result, err := SummarizeTextWithPromptLimit("abcdef", "prompt", Options{
+		OpenAIAPIKey: "test-key",
+		Model:        "test-model",
+	}, 3)
+	if err != nil {
+		t.Fatalf("summarize text with prompt: %v", err)
+	}
+	if result.Summary != "ok" {
+		t.Fatalf("expected summary ok, got %q", result.Summary)
+	}
+	if result.Warning != "LLM input truncated to 3 bytes." {
+		t.Fatalf("expected truncation warning, got %q", result.Warning)
+	}
+	if got := requestBody.Messages[1].Content; got != "abc" {
+		t.Fatalf("expected truncated content %q, got %q", "abc", got)
+	}
+}
+
 func TestSummarizeArticleReportsExtractiveFallbackWhenOpenAIFails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "<html><body><article>Fallback body text.</article></body></html>")

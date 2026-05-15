@@ -21,9 +21,10 @@ const (
 )
 
 type Options struct {
-	OpenAIAPIKey string
-	Model        string
-	SystemPrompt string
+	OpenAIAPIKey    string
+	Model           string
+	SystemPrompt    string
+	MaxRequestBytes int
 }
 
 type Result struct {
@@ -34,9 +35,10 @@ type Result struct {
 
 func OptionsFromConfig(cfg config.InterestConfig) Options {
 	return Options{
-		OpenAIAPIKey: cfg.OpenAIAPIKey,
-		Model:        cfg.Model,
-		SystemPrompt: cfg.SystemPrompt,
+		OpenAIAPIKey:    cfg.OpenAIAPIKey,
+		Model:           cfg.Model,
+		SystemPrompt:    cfg.SystemPrompt,
+		MaxRequestBytes: cfg.MaxRequestBytes,
 	}
 }
 
@@ -48,6 +50,13 @@ func ClassifySummary(blogName string, summary string, prompt string, opts Option
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return Result{}, fmt.Errorf("interest classification requires a non-empty interest_prompt")
+	}
+	maxRequestBytes := opts.MaxRequestBytes
+	if maxRequestBytes <= 0 {
+		maxRequestBytes = config.DefaultInterestMaxRequestBytes
+	}
+	if len(summary) > maxRequestBytes {
+		summary = truncateUTF8ToBytes(summary, maxRequestBytes)
 	}
 
 	apiKey := resolveAPIKey(opts)
@@ -172,6 +181,20 @@ func resolveAPIKey(opts Options) string {
 		return key
 	}
 	return opts.OpenAIAPIKey
+}
+
+func truncateUTF8ToBytes(text string, maxBytes int) string {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text
+	}
+	cutoff := 0
+	for i := range text {
+		if i > maxBytes {
+			break
+		}
+		cutoff = i
+	}
+	return text[:cutoff]
 }
 
 type chatRequest struct {

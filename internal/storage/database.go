@@ -16,6 +16,8 @@ import (
 
 const sqliteTimeLayout = time.RFC3339Nano
 
+const articleColumns = `id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine, interest_state, interest_reason, interest_engine, interest_judged_at, hn_item_id, hn_points, hn_comments, hn_summary, hn_fetched`
+
 func DefaultDBPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -126,6 +128,36 @@ func (db *Database) init() error {
 		}
 	}
 	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN interest_judged_at TIMESTAMP`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_item_id INTEGER DEFAULT 0`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_points INTEGER DEFAULT 0`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_comments INTEGER DEFAULT 0`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_summary TEXT DEFAULT ''`)
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	_, err = db.conn.Exec(`ALTER TABLE articles ADD COLUMN hn_fetched TIMESTAMP`)
 	if err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			return err
@@ -284,12 +316,12 @@ func (db *Database) AddArticlesBulk(articles []model.Article) (int, error) {
 }
 
 func (db *Database) GetArticle(id int64) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine, interest_state, interest_reason, interest_engine, interest_judged_at FROM articles WHERE id = ?`, id)
+	row := db.conn.QueryRow(`SELECT `+articleColumns+` FROM articles WHERE id = ?`, id)
 	return scanArticle(row)
 }
 
 func (db *Database) GetArticleByURL(url string) (*model.Article, error) {
-	row := db.conn.QueryRow(`SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine, interest_state, interest_reason, interest_engine, interest_judged_at FROM articles WHERE url = ?`, url)
+	row := db.conn.QueryRow(`SELECT `+articleColumns+` FROM articles WHERE url = ?`, url)
 	return scanArticle(row)
 }
 
@@ -343,7 +375,7 @@ func (db *Database) GetExistingArticleURLs(urls []string) (map[string]struct{}, 
 }
 
 func (db *Database) ListArticles(unreadOnly bool, blogID *int64) ([]model.Article, error) {
-	query := `SELECT id, blog_id, title, url, published_date, discovered_date, is_read, summary, summary_engine, interest_state, interest_reason, interest_engine, interest_judged_at FROM articles WHERE 1=1`
+	query := `SELECT ` + articleColumns + ` FROM articles WHERE 1=1`
 	var args []interface{}
 	if unreadOnly {
 		query += " AND is_read = 0"
@@ -435,6 +467,19 @@ func (db *Database) UpdateArticleSummary(id int64, summary string, engine string
 	return err
 }
 
+func (db *Database) UpdateArticleHackerNews(id int64, itemID int64, points int, comments int, summary string, fetched time.Time) error {
+	_, err := db.conn.Exec(
+		`UPDATE articles SET hn_item_id = ?, hn_points = ?, hn_comments = ?, hn_summary = ?, hn_fetched = ? WHERE id = ?`,
+		itemID,
+		points,
+		comments,
+		summary,
+		fetched.Format(sqliteTimeLayout),
+		id,
+	)
+	return err
+}
+
 func (db *Database) UpdateArticleInterest(id int64, state string, reason string, engine string, judgedAt time.Time) error {
 	_, err := db.conn.Exec(
 		`UPDATE articles SET interest_state = ?, interest_reason = ?, interest_engine = ?, interest_judged_at = ? WHERE id = ?`,
@@ -493,6 +538,11 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		interestReason sql.NullString
 		interestEngine sql.NullString
 		interestJudged sql.NullString
+		hnItemID       sql.NullInt64
+		hnPoints       sql.NullInt64
+		hnComments     sql.NullInt64
+		hnSummary      sql.NullString
+		hnFetched      sql.NullString
 	)
 	if err := scanner.Scan(
 		&id,
@@ -508,6 +558,11 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		&interestReason,
 		&interestEngine,
 		&interestJudged,
+		&hnItemID,
+		&hnPoints,
+		&hnComments,
+		&hnSummary,
+		&hnFetched,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -526,6 +581,10 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 		InterestState:  interestState.String,
 		InterestReason: interestReason.String,
 		InterestEngine: interestEngine.String,
+		HNItemID:       hnItemID.Int64,
+		HNPoints:       int(hnPoints.Int64),
+		HNComments:     int(hnComments.Int64),
+		HNSummary:      hnSummary.String,
 	}
 	if publishedDate.Valid {
 		if parsed, err := parseTime(publishedDate.String); err == nil {
@@ -540,6 +599,11 @@ func scanArticle(scanner interface{ Scan(dest ...any) error }) (*model.Article, 
 	if interestJudged.Valid {
 		if parsed, err := parseTime(interestJudged.String); err == nil {
 			article.InterestJudged = &parsed
+		}
+	}
+	if hnFetched.Valid {
+		if parsed, err := parseTime(hnFetched.String); err == nil {
+			article.HNFetched = &parsed
 		}
 	}
 

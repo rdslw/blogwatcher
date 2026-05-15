@@ -10,6 +10,8 @@ Short list of changes in this fork:
 
 - **Article summaries**: adds cached article summarization with OpenAI-backed and local extractive modes.
 - **Interest classification**: adds configurable `prefer` / `normal` / `hide` ranking driven by cached summaries.
+- **Hacker News enrichment**: optionally finds matching HN submissions and caches points, comment count, and an LLM summary of the discussion.
+- **HN cost controls**: HN enrichment has its own cache, refresh flag, request-size limit, and `--hn-limit` guard for large runs.
 - **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
 
@@ -141,6 +143,18 @@ blogwatcher summary --extractive
 # Show blog, engine, and summary size metadata
 blogwatcher summary --verbose
 
+# Add cached or missing Hacker News data when a matching submission exists
+blogwatcher summary --hn
+
+# With --verbose, also show an LLM summary of the HN discussion
+blogwatcher summary --hn --verbose
+
+# Regenerate HN metadata and discussion summaries
+blogwatcher summary --hn-refresh
+
+# Allow more than the default 30 new HN discussion summaries
+blogwatcher summary --hn --hn-limit 100
+
 # Sort output by date: newest first (default) or oldest first
 blogwatcher summary --sort oldest
 ```
@@ -177,6 +191,12 @@ blogwatcher interest --summary
 # Show blog, engine, summary size, and timestamp metadata
 blogwatcher interest --verbose
 
+# Add cached or missing Hacker News data for articles processed by this run
+blogwatcher interest --hn
+
+# Regenerate HN data while classifying interest
+blogwatcher interest --hn-refresh --hn-limit 100
+
 # Sort output by date: newest first (default) or oldest first
 blogwatcher interest --sort oldest
 ```
@@ -190,6 +210,8 @@ Create `~/.blogwatcher/config.toml`:
 model = "gpt-5.4-nano"
 openai_api_key = "sk-..."
 max_request_bytes = 40960
+hackernews_max_request_bytes = 204800
+hackernews = false
 system_prompt = """
 You are a concise blog article summarizer. Summarize the following article text in 100 to 400 words.
 Focus on the key points, main arguments, and conclusions.
@@ -198,7 +220,19 @@ subscription/paywall prompts, social-sharing UI, ads, and related/recent article
 Use clear, informative language. Output only the summary text.
 Use the same language as the blog article.
 """
+# Optional: hackernews_prompt can override the built-in Path ID discussion prompt.
 ```
+
+HN enrichment stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and
+`hn_fetched` in the article cache. `--hn` reuses cached HN summaries and generates
+only missing ones. `--hn-refresh` fetches HN again and regenerates the HN summary.
+If no HN discussion is found, `hn_item_id = 0` and `hn_fetched` record the check,
+but later `--hn` runs still retry because articles can reach HN later.
+New HN summaries are capped by `--hn-limit` (default 30); raise it explicitly for
+large runs such as `--all`. Large HN discussions are truncated to
+`hackernews_max_request_bytes` before the LLM call; verbose output notes truncation.
+The summary and HN limits are separate: `max_request_bytes` is for article text,
+while `hackernews_max_request_bytes` is for HN Path ID discussion text.
 
 ### Interest Configuration
 
@@ -208,6 +242,7 @@ Create `~/.blogwatcher/config.toml` with a default interest prompt and optional 
 [interest]
 openai_api_key = "sk-..."
 model = "gpt-5.4-nano"
+max_request_bytes = 12288
 system_prompt = """
 You are classifying whether a blog article is worth prioritizing for the user.
 Return strict JSON with keys "state" and "reason".

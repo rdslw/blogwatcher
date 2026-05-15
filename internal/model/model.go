@@ -40,4 +40,9 @@ type Article struct {
 	InterestReason string
 	InterestEngine string
 	InterestJudged *time.Time
+	HNItemID       int64
+	HNPoints       int
+	HNComments     int
+	HNSummary      string
+	HNFetched      *time.Time
 }

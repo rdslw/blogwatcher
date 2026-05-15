@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/hackernews"
 	"github.com/rdslw/blogwatcher/internal/interest"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/storage"
@@ -392,6 +393,332 @@ func TestSummarizeArticlesDoesNotCountCachedSummariesAgainstLimit(t *testing.T) 
 	}
 }
 
+func TestSummarizeArticlesHackerNewsUsesCurrentScopeOnly(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	var unreadIDs []int64
+	for i := range 3 {
+		article, err := db.AddArticle(model.Article{
+			BlogID: blog.ID,
+			Title:  fmt.Sprintf("Title %d", i+1),
+			URL:    fmt.Sprintf("https://example.com/%d", i+1),
+		})
+		if err != nil {
+			t.Fatalf("add article: %v", err)
+		}
+		if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+			t.Fatalf("cache summary: %v", err)
+		}
+		if i == 2 {
+			if _, err := db.MarkArticleRead(article.ID); err != nil {
+				t.Fatalf("mark read: %v", err)
+			}
+		} else {
+			unreadIDs = append(unreadIDs, article.ID)
+		}
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+
+	var enrichedIDs []int64
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		enrichedIDs = append(enrichedIDs, article.ID)
+		return &hackernews.Result{
+			ID:                1000 + article.ID,
+			URL:               fmt.Sprintf("https://news.ycombinator.com/item?id=%d", 1000+article.ID),
+			Points:            12,
+			Comments:          3,
+			DiscussionSummary: "HN discussion summary",
+		}, nil
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   30,
+	})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if len(results) != len(unreadIDs) {
+		t.Fatalf("expected %d unread results, got %d", len(unreadIDs), len(results))
+	}
+	expectedIDs := map[int64]bool{}
+	for _, id := range unreadIDs {
+		expectedIDs[id] = true
+	}
+	for _, id := range enrichedIDs {
+		if !expectedIDs[id] {
+			t.Fatalf("unexpected HN enrichment for article %d; expected scope %v", id, unreadIDs)
+		}
+	}
+	if len(enrichedIDs) != len(expectedIDs) {
+		t.Fatalf("expected HN enrichment for %d articles, got %d", len(expectedIDs), len(enrichedIDs))
+	}
+	for _, result := range results {
+		if result.HackerNews == nil {
+			t.Fatalf("expected HN result for article %d", result.Article.ID)
+		}
+	}
+
+	fetched, err := db.GetArticle(unreadIDs[0])
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched.HNSummary != "HN discussion summary" {
+		t.Fatalf("expected HN summary cached, got %q", fetched.HNSummary)
+	}
+}
+
+func TestSummarizeArticlesHackerNewsUsesCachedSummaryWithoutRefresh(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+		t.Fatalf("cache summary: %v", err)
+	}
+	if err := db.UpdateArticleHackerNews(article.ID, 42, 10, 3, "cached HN summary", time.Now().UTC()); err != nil {
+		t.Fatalf("cache HN summary: %v", err)
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		if refresh {
+			return &hackernews.Result{ID: 42, URL: "https://news.ycombinator.com/item?id=42", Points: 11, Comments: 4, DiscussionSummary: "fresh HN summary"}, nil
+		}
+		if article.HNSummary == "" {
+			t.Fatalf("expected cached HN summary in article")
+		}
+		return &hackernews.Result{ID: article.HNItemID, URL: "https://news.ycombinator.com/item?id=42", Points: article.HNPoints, Comments: article.HNComments, DiscussionSummary: article.HNSummary, Cached: true}, nil
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   0,
+	})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if results[0].HackerNews == nil || !results[0].HackerNews.Cached {
+		t.Fatalf("expected cached HN result, got %+v", results[0].HackerNews)
+	}
+
+	results, err = SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Refresh: true,
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("refresh HN: %v", err)
+	}
+	if results[0].HackerNews.DiscussionSummary != "fresh HN summary" {
+		t.Fatalf("expected refreshed HN summary, got %q", results[0].HackerNews.DiscussionSummary)
+	}
+}
+
+func TestSummarizeArticlesHackerNewsLimitCountsMissingSummaries(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	for i := range 2 {
+		article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: fmt.Sprintf("Title %d", i), URL: fmt.Sprintf("https://example.com/%d", i)})
+		if err != nil {
+			t.Fatalf("add article: %v", err)
+		}
+		if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+			t.Fatalf("cache summary: %v", err)
+		}
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		t.Fatalf("HN enrichment should not start when --hn-limit is exceeded")
+		return nil, nil
+	}
+
+	_, err = SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   1,
+	})
+	var limitErr HackerNewsLimitExceededError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("expected HN limit error, got %v", err)
+	}
+	if limitErr.Total != 2 || limitErr.Limit != 1 {
+		t.Fatalf("unexpected HN limit error: %+v", limitErr)
+	}
+}
+
+func TestSummarizeArticlesHackerNewsPersistsNotFoundMarkerAndRetries(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+		t.Fatalf("cache summary: %v", err)
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+
+	var calls int
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		calls++
+		return &hackernews.Result{NotFound: true}, nil
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if results[0].HackerNews == nil || !results[0].HackerNews.NotFound {
+		t.Fatalf("expected not found HN result, got %+v", results[0].HackerNews)
+	}
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched.HNItemID != 0 {
+		t.Fatalf("expected HN item id 0 marker, got %d", fetched.HNItemID)
+	}
+	if fetched.HNFetched == nil {
+		t.Fatalf("expected HN fetched timestamp for not found marker")
+	}
+
+	_, err = SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("second HN run: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("expected not-found article to be retried, got %d calls", calls)
+	}
+}
+
+func TestSummarizeArticlesHackerNewsZeroCommentsIsCachedComplete(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+		t.Fatalf("cache summary: %v", err)
+	}
+	if err := db.UpdateArticleHackerNews(article.ID, 42, 10, 0, "", time.Now().UTC()); err != nil {
+		t.Fatalf("cache HN metadata: %v", err)
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   0,
+	})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if results[0].HackerNews == nil || !results[0].HackerNews.Cached || results[0].HackerNews.Comments != 0 {
+		t.Fatalf("expected cached zero-comment HN result, got %+v", results[0].HackerNews)
+	}
+}
+
+func TestSummarizeArticlesHackerNewsSummaryFailureDoesNotPersistSummary(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+		t.Fatalf("cache summary: %v", err)
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		return &hackernews.Result{
+			ID:                42,
+			URL:               "https://news.ycombinator.com/item?id=42",
+			Points:            10,
+			Comments:          2,
+			DiscussionSummary: "do not persist this failed summary",
+			Warning:           "HN discussion summary failed: denied",
+		}, nil
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
+		Enabled: true,
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if results[0].HackerNews.Warning == "" {
+		t.Fatalf("expected transient HN warning")
+	}
+	fetched, err := db.GetArticle(article.ID)
+	if err != nil {
+		t.Fatalf("get article: %v", err)
+	}
+	if fetched.HNItemID != 42 || fetched.HNComments != 2 {
+		t.Fatalf("expected HN metadata persisted, got item=%d comments=%d", fetched.HNItemID, fetched.HNComments)
+	}
+	if fetched.HNSummary != "" {
+		t.Fatalf("expected failed HN summary not persisted, got %q", fetched.HNSummary)
+	}
+}
+
 func TestSummarizeArticlesReturnsCacheWriteFailures(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
@@ -590,6 +917,54 @@ func TestClassifyArticlesInterestDoesNotCountCachedResultsAgainstLimit(t *testin
 		if !result.Cached {
 			t.Fatalf("expected cached result for article %d", result.Article.ID)
 		}
+	}
+}
+
+func TestClassifyArticlesInterestHackerNewsEnrichesResults(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Tech Blog", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+	if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+		t.Fatalf("cache summary: %v", err)
+	}
+	if err := db.UpdateArticleInterest(article.ID, model.InterestStatePrefer, "reason", interest.EngineOpenAI, time.Now()); err != nil {
+		t.Fatalf("cache interest: %v", err)
+	}
+
+	originalEnrich := enrichHackerNewsFn
+	t.Cleanup(func() {
+		enrichHackerNewsFn = originalEnrich
+	})
+
+	enrichHackerNewsFn = func(article model.Article, opts summarizer.Options, refresh bool) (*hackernews.Result, error) {
+		return &hackernews.Result{
+			ID:                42,
+			URL:               "https://news.ycombinator.com/item?id=42",
+			Points:            5,
+			Comments:          2,
+			DiscussionSummary: "HN discussion summary",
+		}, nil
+	}
+
+	results, err := ClassifyArticlesInterest(db, false, "", false, false, false, 10, 1, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "Prefer technical posts.",
+	}, HackerNewsOptions{Enabled: true, Limit: 30})
+	if err != nil {
+		t.Fatalf("classify articles interest: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].HackerNews == nil {
+		t.Fatalf("expected HN enrichment")
 	}
 }
 
