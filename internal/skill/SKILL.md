@@ -50,6 +50,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`, `--hn`, `--hn-refresh`, `--hn-limit N`
 Common flags for `articles` and `interest`: `--summary` (show cached summary text)
 Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
+Common flags for `blogs`, `articles`, `summary`, and `interest`: `--json` (see [JSON Output](#json-output))
 Scan-specific: `--feed-discovery` (try RSS/Atom discovery even for blogs with a scrape selector)
 
 ## Summary Pipeline
@@ -132,7 +133,27 @@ Adds the matching HN discussion (points, comments, summary) to each article via 
 
 Persisted fields: `hn_item_id` (0 = checked, no match), `hn_points`, `hn_comments`, `hn_summary`, `hn_fetched`.
 
+## JSON Output
+
+`blogs`, `articles`, `summary`, and `interest` support `--json` to emit a single JSON document on stdout — designed for agentic consumers. No colors, headers, or human text are mixed in.
+
+**Envelopes:**
+- `blogs --json` → `{"blogs": [ { id, name, url, feed_url?, scrape_selector?, last_scanned?, stats: {total, unread, hide, normal, prefer} } ]}`
+- `articles --json` → `{"articles": [ <article> ]}`
+- `summary --json` → `{"summaries": [ { article: <article>, blog_name?, engine?, cached?, upgraded?, warning?, hn? } ]}`
+- `interest --json` → `{"interests": [ { article: <article>, blog_name?, engine?, cached?, skipped?, note?, hn? } ]}`
+
+**`<article>` fields:** `id`, `blog_id`, `blog_name?`, `title`, `url`, `published_date?`, `discovered_date?`, `is_read`, `summary?`, `summary_engine?`, `interest_state?`, `interest_reason?`, `interest_engine?`, `interest_judged?`, `hn?`.
+
+**`hn` object** (present only when the article has been HN-checked): `fetched`, `found` (bool), and when found: `item_id`, `url`, `points`, `comments`, `summary?`, `warning?`, `cached?`.
+
+**Errors:** on failure, the command writes `{"error": "..."}` to stdout and exits non-zero. Optional fields are omitted when empty.
+
+**Tip:** the `--json` payload always includes the same fields regardless of `-v` / `-s`; those flags only affect the human renderer.
+
 ## Standard Workflow
+
+**NB:** add `--json` option for `blogs|articles|interest|summary` commands, if run in LLM/agent.
 
 ### 1. Scan for new articles
 
@@ -214,3 +235,4 @@ remaining-blogs — no updates.
 - `summary` and `interest` are idempotent but cost money on first run — avoid `--refresh` unless needed.
 - No built-in scheduling — run manually or set up a cron job.
 - Use `blogwatcher export` to back up blog definitions as a portable shell script.
+- Use `--json` option for `blogs|articles|interest|summary` commands, if run in LLM/agent

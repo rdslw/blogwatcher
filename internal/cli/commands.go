@@ -88,6 +88,7 @@ func newRemoveCommand() *cobra.Command {
 
 func newBlogsCommand() *cobra.Command {
 	var verbose bool
+	var jsonOut bool
 
 	cmd := &cobra.Command{
 		Use:   "blogs",
@@ -96,17 +97,41 @@ func newBlogsCommand() *cobra.Command {
 
 Entries interest labels apply to unread articles: "a/b/c h/n/p" means
 hide/normal/prefer counts; "none h/n/p", "no interest data", and
-"partial interest data" describe zero, missing, or partial unread interest data.`,
+"partial interest data" describe zero, missing, or partial unread interest data.
+
+Use --json for a machine-readable list (id, url, feed_url, scrape_selector,
+last_scanned, stats) for agentic use.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := storage.OpenDatabase("")
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 			defer db.Close()
 			blogs, err := db.ListBlogs()
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
+
+			if jsonOut {
+				out := make([]jsonBlog, 0, len(blogs))
+				for _, b := range blogs {
+					stats, err := db.CountArticleStats(b.ID)
+					if err != nil {
+						return emitJSONError(err)
+					}
+					out = append(out, toJSONBlog(b, stats))
+				}
+				return emitJSON(struct {
+					Blogs []jsonBlog `json:"blogs"`
+				}{Blogs: out})
+			}
+
 			if len(blogs) == 0 {
 				fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
 				return nil
@@ -135,6 +160,7 @@ hide/normal/prefer counts; "none h/n/p", "no interest data", and
 		},
 	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show feed URL and scrape selector")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
 
@@ -285,6 +311,7 @@ func newArticlesCommand() *cobra.Command {
 	var verbose bool
 	var interestFilter string
 	var sortFlag string
+	var jsonOut bool
 
 	cmd := &cobra.Command{
 		Use:   "articles [article_id...]",
@@ -295,21 +322,34 @@ Otherwise list unread articles (or all with --all).
 The --filter flag controls interest-based filtering:
   all     no filtering (default)
   norm    show prefer and normal only (hide "hide")
-  prefer  show prefer only`,
+  prefer  show prefer only
+
+Use --json for a machine-readable list with full article fields and cached HN
+data (when available) for agentic use.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch interestFilter {
 			case "all", "norm", "prefer":
 			default:
-				return fmt.Errorf("invalid --filter value: %q (must be all, norm, or prefer)", interestFilter)
+				err := fmt.Errorf("invalid --filter value: %q (must be all, norm, or prefer)", interestFilter)
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
 			}
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 
 			db, err := storage.OpenDatabase("")
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 			defer db.Close()
@@ -322,6 +362,9 @@ The --filter flag controls interest-based filtering:
 				for _, arg := range args {
 					id, err := parseID(arg)
 					if err != nil {
+						if jsonOut {
+							return emitJSONError(err)
+						}
 						return err
 					}
 					ids = append(ids, id)
@@ -331,11 +374,24 @@ The --filter flag controls interest-based filtering:
 				articles, blogNames, err = controller.GetArticles(db, showAll, blogName, interestFilter)
 			}
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				printError(err)
 				return markError(err)
 			}
 
 			controller.SortArticles(articles, sortOrder)
+
+			if jsonOut {
+				out := make([]jsonArticle, 0, len(articles))
+				for _, a := range articles {
+					out = append(out, toJSONArticle(a, blogNames[a.BlogID]))
+				}
+				return emitJSON(struct {
+					Articles []jsonArticle `json:"articles"`
+				}{Articles: out})
+			}
 
 			if len(articles) == 0 {
 				if len(args) > 0 {
@@ -368,6 +424,7 @@ The --filter flag controls interest-based filtering:
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().StringVarP(&interestFilter, "filter", "f", "all", "Interest filter: all, norm, prefer")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
 
@@ -538,6 +595,7 @@ func newSummaryCommand() *cobra.Command {
 	var hackerNews bool
 	var hackerNewsRefresh bool
 	var hackerNewsLimit int
+	var jsonOut bool
 
 	cmd := &cobra.Command{
 		Use:   "summary [article_id]",
@@ -571,6 +629,9 @@ generated only for selected articles and are capped by --hn-limit (default 30).
 Use --hn-refresh to refresh HN metadata and regenerate HN summaries. Large HN
 threads are truncated to hackernews_max_request_bytes before the LLM call.
 
+Use --json for a machine-readable list of summary results (with engine, cached,
+upgraded, warning, and HN data) for agentic use.
+
 Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
   gpt-4o-mini     ~$0.0015/article   (cheapest, older model)
@@ -587,12 +648,19 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 
 			cfg, err := config.Load()
 			if err != nil {
-				printError(fmt.Errorf("config: %v", err))
+				werr := fmt.Errorf("config: %v", err)
+				if jsonOut {
+					return emitJSONError(werr)
+				}
+				printError(werr)
 				return markError(err)
 			}
 			opts := summarizer.OptionsFromConfig(cfg.Summary)
@@ -600,7 +668,11 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				opts.Model = modelFlag
 			}
 			if hackerNewsLimit < 0 {
-				return fmt.Errorf("--hn-limit must be 0 or greater")
+				err := fmt.Errorf("--hn-limit must be 0 or greater")
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
 			}
 			hnOpts := controller.HackerNewsOptions{
 				Enabled: hackerNews || hackerNewsRefresh || cfg.Summary.HackerNews,
@@ -611,6 +683,9 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
 			db, err := storage.OpenDatabase("")
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 			defer db.Close()
@@ -618,21 +693,44 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 			if len(args) == 1 {
 				articleID, err := parseID(args[0])
 				if err != nil {
+					if jsonOut {
+						return emitJSONError(err)
+					}
 					return err
 				}
 				result, err := controller.SummarizeArticle(db, articleID, forceExtractive, refresh, opts, hnOpts)
 				if err != nil {
+					if jsonOut {
+						return emitJSONError(err)
+					}
 					printError(err)
 					return markError(err)
+				}
+				if jsonOut {
+					return emitJSON(struct {
+						Summaries []jsonSummaryResult `json:"summaries"`
+					}{Summaries: []jsonSummaryResult{toJSONSummaryResult(result)}})
 				}
 				printSummaryResult(result, verbose)
 			} else {
 				results, err := controller.SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
 				if err != nil {
+					if jsonOut {
+						return emitJSONError(err)
+					}
 					printError(err)
 					return markError(err)
 				}
 				controller.SortSummaryResults(results, sortOrder)
+				if jsonOut {
+					out := make([]jsonSummaryResult, 0, len(results))
+					for _, r := range results {
+						out = append(out, toJSONSummaryResult(r))
+					}
+					return emitJSON(struct {
+						Summaries []jsonSummaryResult `json:"summaries"`
+					}{Summaries: out})
+				}
 				if len(results) == 0 {
 					if showAll {
 						fmt.Println("No articles found.")
@@ -668,6 +766,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
 	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
 
@@ -687,6 +786,7 @@ func newInterestCommand() *cobra.Command {
 	var hackerNews bool
 	var hackerNewsRefresh bool
 	var hackerNewsLimit int
+	var jsonOut bool
 
 	cmd := &cobra.Command{
 		Use:   "interest [article_id]",
@@ -716,7 +816,10 @@ Configuration via ~/.blogwatcher/config.toml:
   interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."
 
 Use --hn or [summary].hackernews=true to add cached or missing Hacker News data.
-Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regenerates them.`,
+Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regenerates them.
+
+Use --json for a machine-readable list of interest results (with engine, cached,
+skipped, note, and HN data) for agentic use.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
@@ -727,12 +830,19 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 
 			cfg, err := config.Load()
 			if err != nil {
-				printError(fmt.Errorf("config: %v", err))
+				werr := fmt.Errorf("config: %v", err)
+				if jsonOut {
+					return emitJSONError(werr)
+				}
+				printError(werr)
 				return markError(err)
 			}
 
@@ -742,7 +852,11 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 				interestCfg.Model = modelFlag
 			}
 			if hackerNewsLimit < 0 {
-				return fmt.Errorf("--hn-limit must be 0 or greater")
+				err := fmt.Errorf("--hn-limit must be 0 or greater")
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
 			}
 			hnOpts := controller.HackerNewsOptions{
 				Enabled: hackerNews || hackerNewsRefresh || cfg.Summary.HackerNews,
@@ -753,6 +867,9 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 
 			db, err := storage.OpenDatabase("")
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				return err
 			}
 			defer db.Close()
@@ -760,12 +877,23 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 			if len(args) == 1 {
 				articleID, err := parseID(args[0])
 				if err != nil {
+					if jsonOut {
+						return emitJSONError(err)
+					}
 					return err
 				}
 				result, err := controller.ClassifyArticleInterest(db, articleID, refresh, refreshSummary, forceExtractive, summaryOpts, interestCfg, hnOpts)
 				if err != nil {
+					if jsonOut {
+						return emitJSONError(err)
+					}
 					printError(err)
 					return markError(err)
+				}
+				if jsonOut {
+					return emitJSON(struct {
+						Interests []jsonInterestResult `json:"interests"`
+					}{Interests: []jsonInterestResult{toJSONInterestResult(result)}})
 				}
 				printInterestResult(result, verbose, showSummary)
 				return nil
@@ -773,10 +901,22 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 
 			results, err := controller.ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
 			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
 				printError(err)
 				return markError(err)
 			}
 			controller.SortInterestResults(results, sortOrder)
+			if jsonOut {
+				out := make([]jsonInterestResult, 0, len(results))
+				for _, r := range results {
+					out = append(out, toJSONInterestResult(r))
+				}
+				return emitJSON(struct {
+					Interests []jsonInterestResult `json:"interests"`
+				}{Interests: out})
+			}
 			if len(results) == 0 {
 				if showAll {
 					fmt.Println("No articles found.")
@@ -814,6 +954,7 @@ Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regener
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
 	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
 

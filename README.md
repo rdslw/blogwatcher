@@ -13,6 +13,7 @@ Short list of changes in this fork:
 - **Hacker News enrichment**: optionally finds matching HN submissions and caches points, comment count, and an LLM summary of the discussion.
 - **HN cost controls**: HN enrichment has its own cache, refresh flag, request-size limit, and `--hn-limit` guard for large runs.
 - **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
+- **JSON output**: `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic consumers.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
 
 ## Features
@@ -25,6 +26,7 @@ Short list of changes in this fork:
 -   **Article Summaries** - Generate and cache summaries with OpenAI or local fallback modes
 -   **Interest Classification** - Label articles as `prefer`, `normal`, or `hide` from their summaries
 -   **Skill Document** - Built-in `skill` command emits a machine-readable skill doc for agentic systems
+-   **JSON Output** - `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic use
 -   **Duplicate Prevention** - Never tracks the same article twice
 -   **Colored CLI Output** - User-friendly terminal interface
 
@@ -286,6 +288,29 @@ Prompt writing tips:
 
 - `prefer` examples: "Prefer posts with benchmarks, architecture diagrams, implementation details, incident writeups, or concrete tradeoff analysis."
 - `hide` examples: "Hide launch announcements, release notes without substance, marketing content, funding news, link roundups, and repetitive opinion posts."
+
+### JSON Output (for scripts / agents)
+
+`blogs`, `articles`, `summary`, and `interest` accept `--json` and emit a single JSON document on stdout. No colors or headers are mixed in.
+
+```bash
+blogwatcher blogs --json
+blogwatcher articles --json
+blogwatcher articles --filter prefer --json
+blogwatcher summary --json
+blogwatcher interest --json
+```
+
+Envelope shapes:
+
+- `blogs` → `{"blogs": [ { id, name, url, feed_url?, scrape_selector?, last_scanned?, stats: {total, unread, hide, normal, prefer} } ]}`
+- `articles` → `{"articles": [ <article> ]}`
+- `summary` → `{"summaries": [ { article: <article>, blog_name?, engine?, cached?, upgraded?, warning?, hn? } ]}`
+- `interest` → `{"interests": [ { article: <article>, blog_name?, engine?, cached?, skipped?, note?, hn? } ]}`
+
+`<article>` always includes `id`, `blog_id`, `title`, `url`, `is_read`, and (when populated) `blog_name`, `published_date`, `discovered_date`, `summary`, `summary_engine`, `interest_state`, `interest_reason`, `interest_engine`, `interest_judged`, `hn`. The `hn` object is included only when the article has been HN-checked and exposes `fetched`, `found`, and (when found) `item_id`, `url`, `points`, `comments`, `summary`, `warning`, `cached`.
+
+On failure the command writes `{"error": "..."}` to stdout and exits non-zero.
 
 ### Skill Document
 
