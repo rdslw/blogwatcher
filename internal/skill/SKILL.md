@@ -24,7 +24,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher articles --filter prefer` | Show only `prefer`-classified articles |
 | `blogwatcher articles --sort oldest` | Order by date (earliest first; default is `newest`) |
 | `blogwatcher articles -s` | Show cached summary text alongside articles |
-| `blogwatcher articles -v` | Show blog, engine, summary size, and timestamp metadata |
+| `blogwatcher articles -v` | Show blog, engine, summary size, timestamp, and cached HN metadata |
 | `blogwatcher read <id> [id...]` | Mark article(s) as read |
 | `blogwatcher read --scope hide` | Mark all hide-classified unread articles as read |
 | `blogwatcher read --scope all` | Mark all unread articles as read |
@@ -66,9 +66,7 @@ The `summary` command generates a short text summary for each article.
 - **Fallback:** if LLM call fails, falls back to snippet automatically.
 - **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
 - **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is stripped of HTML and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
-- **Hacker News enrichment:** `--hn` or `[summary].hackernews = true` searches Algolia HN for the article URL, fetches the matching discussion, stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and `hn_fetched`, then prints HN points/comment count. With `--verbose`, it prints the HN discussion summary.
-- **HN cache/refresh:** `--hn` reuses cached HN summaries and generates only missing ones. If no HN discussion is found, `hn_item_id = 0` and `hn_fetched` record the check, but future `--hn` runs still retry. `--hn-refresh` refreshes HN metadata and regenerates HN summaries.
-- **Cost control:** `--limit N` (default 50) caps article summaries only. `--hn-limit N` (default 30) caps new HN discussion summaries. `--workers N` controls article summary/classification concurrency.
+- **Cost control:** `--limit N` (default 50) caps article summaries only. `--workers N` controls article summary/classification concurrency. See [Hacker News Enrichment](#hacker-news-enrichment) for `--hn-limit`.
 
 ### Summary Configuration
 
@@ -117,6 +115,23 @@ interest_prompt = "Prefer Apple hardware releases; hide accessory reviews and ru
 
 The `interest_prompt` is the user-facing classification policy — what matters to you. The `system_prompt` controls the LLM's output format and should rarely need changing.
 
+## Hacker News Enrichment
+
+Adds the matching HN discussion (points, comments, summary) to each article via Algolia HN search by URL. Works with `summary`, `interest`, and (display only) `articles -v`.
+
+**Display is always on for cached data.** Any article already enriched (`hn_fetched IS NOT NULL`) shows its cached HN line in `summary`, `interest`, and `articles -v` — no `--hn` needed. Articles checked but with no HN match show `no discussion found`.
+
+**Flags gate fetching/summarizing only:**
+- `--hn` (or `[summary].hackernews = true`) enables fetching missing HN data and generating missing HN discussion summaries for selected articles. Available on `summary` and `interest`.
+- `--hn-refresh` re-fetches HN metadata and regenerates HN summaries even if cached.
+- `--hn-limit N` (default 30) caps how many *new* HN discussion summaries are generated per run. Cached results are not counted.
+
+**Verbose output (`-v`):**
+- `summary -v` / `interest -v`: prints the HN discussion summary text.
+- `articles -v`: prints fetched timestamp, points/comments, HN URL, and HN summary char/word counts. Shows `not yet checked` for un-enriched articles.
+
+Persisted fields: `hn_item_id` (0 = checked, no match), `hn_points`, `hn_comments`, `hn_summary`, `hn_fetched`.
+
 ## Standard Workflow
 
 ### 1. Scan for new articles
@@ -158,7 +173,7 @@ blogwatcher read 42 99               # mark specific articles as read
 
 Group articles by blog. Use interest labels and summaries for context.
 
-If the user asks for community reaction, controversy, external validation, or Hacker News context, use `blogwatcher summary --hn` or `blogwatcher interest --hn`. This reuses cached HN summaries when present and only generates missing ones, capped by `--hn-limit` (default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
+Cached HN data (points, comments, summary) shows up in any `summary`/`interest`/`articles -v` output without a flag. If the user asks for community reaction, controversy, external validation, or Hacker News context for articles that haven't been enriched yet, run `blogwatcher summary --hn` or `blogwatcher interest --hn` to fetch missing HN data (capped by `--hn-limit`, default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
 
 ```
 📰 Blogwatcher — N new articles
