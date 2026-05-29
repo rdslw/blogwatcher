@@ -1,5 +1,35 @@
 # TODO (ideas and tasks)
 
+## refactor --filter option
+
+Goal: add --filter to more commands, make it simpler and easier to use and understand
+
+1. Consider if it shall be named --filter or --scope
+2. --filter shall be possible in all 'article showing commands': articles, summary, interest
+3. also in `read` command, but make it coherent name with others
+4. it shall probably work as `--option COMMA,SEPARATED,LIST` or multiple `--option ONE --option TWO` choose best approach
+5. `normal` shall also accept `norm`, while `prefer` shall also accept `pref`
+6. remember about documentation, SKILL.md and tests
+
+## add --since DATE option to articles|summary|interest commands
+
+Goal: ability to show all posts since given date
+
+Data can be given as YYYY-MM-DD or simple integeter meaning number of days.
+Calculated from today.
+
+
+## make build/release simpler and/or connected
+
+Goal: to not have conflicted binaries 
+
+sometimes I use 'make build', sometimes 'make release', those two shall know about other and invalidate.
+e.g. 'make release' shall either remove normal binary or symlink it to release
+'make build' shall remove release
+
+or differently, you may propose it.
+
+
 ## Blog Health / Structure Checks (added: 2026-03-26)
 
 Goal: detect blogs that may have become unhealthy, stale, or structurally incompatible with current tracking settings.
