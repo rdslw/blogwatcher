@@ -1,16 +1,5 @@
 # TODO (ideas and tasks)
 
-## make build/release simpler and/or connected
-
-Goal: to not have conflicted binaries 
-
-sometimes I use 'make build', sometimes 'make release', those two shall know about other and invalidate.
-e.g. 'make release' shall either remove normal binary or symlink it to release
-'make build' shall remove release
-
-or differently, you may propose it.
-
-
 ## Blog Health / Structure Checks (added: 2026-03-26)
 
 Goal: detect blogs that may have become unhealthy, stale, or structurally incompatible with current tracking settings.

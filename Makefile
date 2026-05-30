@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help clean test build build-local build-linux-amd64 build-darwin-arm64 build-macos release-builds
+.PHONY: help clean test build build-local build-linux-amd64 build-darwin-arm64 build-macos release
 
 BINARY := blogwatcher
 PACKAGE := ./cmd/blogwatcher
@@ -19,11 +19,11 @@ clean: ## Remove generated build artifacts
 test: ## Run the Go test suite
 	go test ./...
 
-build: build-local ## Build for the current machine into dist/
+build: build-local ## Build for the current machine as ./blogwatcher
 
 build-local:
-	mkdir -p $(DIST_DIR)
-	go build -ldflags='$(LDFLAGS)' -o $(DIST_DIR)/$(BINARY) $(PACKAGE)
+	rm -f $(DIST_DIR)/$(BINARY)-*
+	go build -ldflags='$(LDFLAGS)' -o ./$(BINARY) $(PACKAGE)
 
 build-linux-amd64: ## Build the release Linux amd64 binary into dist/
 	mkdir -p $(DIST_DIR)
@@ -35,4 +35,6 @@ build-darwin-arm64: ## Build the release macOS arm64 binary into dist/
 
 build-macos: build-darwin-arm64 ## alias for the MacOS arm64 build
 
-release: build-linux-amd64 build-darwin-arm64 ## Build the release binaries into dist/
+release: ## Build the release binaries into dist/
+	rm -f ./$(BINARY) $(DIST_DIR)/$(BINARY)
+	$(MAKE) build-linux-amd64 build-darwin-arm64

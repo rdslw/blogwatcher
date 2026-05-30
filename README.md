@@ -424,7 +424,7 @@ make test
 # Run the test suite
 make test
 
-# Build for the current machine
+# Build for the current machine as ./blogwatcher
 make build
 
 # Build the Linux release binary
@@ -440,7 +440,7 @@ make release
 By default the build version is derived from `git describe`. You can override it explicitly when needed:
 
 ```bash
-VERSION=v1.2.3 make build-macos-arm64
+VERSION=v1.2.3 make build-macos
 ```
 
 ### Publishing
