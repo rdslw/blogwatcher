@@ -87,6 +87,104 @@ func (e ArticleNotFoundError) Error() string {
 	return fmt.Sprintf("Article %d not found", e.ID)
 }
 
+type InvalidInterestFilterError struct {
+	Value string
+}
+
+func (e InvalidInterestFilterError) Error() string {
+	return fmt.Sprintf("invalid --filter value %q: must be all, hide, normal/norm, or prefer/pref", e.Value)
+}
+
+type InterestFilter struct {
+	all                 bool
+	includeHide         bool
+	includeNormal       bool
+	includePrefer       bool
+	includeUnclassified bool
+}
+
+func ParseInterestFilter(values []string) (InterestFilter, error) {
+	if len(values) == 0 {
+		return AllInterestFilter(), nil
+	}
+
+	var filter InterestFilter
+	var sawAll bool
+	var sawSpecific bool
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			token := strings.ToLower(strings.TrimSpace(part))
+			if token == "" {
+				continue
+			}
+			switch token {
+			case "all":
+				sawAll = true
+				filter.all = true
+			case "hide":
+				sawSpecific = true
+				filter.includeHide = true
+			case "normal", "norm":
+				sawSpecific = true
+				filter.includeNormal = true
+				filter.includeUnclassified = true
+			case "prefer", "pref":
+				sawSpecific = true
+				filter.includePrefer = true
+			default:
+				return InterestFilter{}, InvalidInterestFilterError{Value: token}
+			}
+		}
+	}
+
+	if sawAll && sawSpecific {
+		return InterestFilter{}, fmt.Errorf("cannot combine --filter all with other filter values")
+	}
+	if filter.all || (!filter.includeHide && !filter.includeNormal && !filter.includePrefer && !filter.includeUnclassified) {
+		return AllInterestFilter(), nil
+	}
+	return filter, nil
+}
+
+func AllInterestFilter() InterestFilter {
+	return InterestFilter{all: true}
+}
+
+func (f InterestFilter) Match(article model.Article) bool {
+	if f.all {
+		return true
+	}
+	switch article.InterestState {
+	case model.InterestStateHide:
+		return f.includeHide
+	case model.InterestStateNormal:
+		return f.includeNormal
+	case model.InterestStatePrefer:
+		return f.includePrefer
+	case "":
+		return f.includeUnclassified
+	default:
+		return false
+	}
+}
+
+func (f InterestFilter) String() string {
+	if f.all {
+		return "all"
+	}
+	var parts []string
+	if f.includeHide {
+		parts = append(parts, "hide")
+	}
+	if f.includeNormal {
+		parts = append(parts, "normal")
+	}
+	if f.includePrefer {
+		parts = append(parts, "prefer")
+	}
+	return strings.Join(parts, ",")
+}
+
 func AddBlog(db *storage.Database, name string, url string, feedURL string, scrapeSelector string) (model.Blog, error) {
 	if existing, err := db.GetBlogByName(name); err != nil {
 		return model.Blog{}, err
@@ -121,6 +219,14 @@ func RemoveBlog(db *storage.Database, name string) error {
 }
 
 func GetArticles(db *storage.Database, showAll bool, blogName string, interestFilter string) ([]model.Article, map[int64]string, error) {
+	filter, err := ParseInterestFilter([]string{interestFilter})
+	if err != nil {
+		return nil, nil, err
+	}
+	return GetArticlesByFilter(db, showAll, blogName, filter)
+}
+
+func GetArticlesByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter) ([]model.Article, map[int64]string, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -138,7 +244,7 @@ func GetArticles(db *storage.Database, showAll bool, blogName string, interestFi
 		return nil, nil, err
 	}
 
-	articles = filterByInterest(articles, interestFilter)
+	articles = filterByInterest(articles, filter)
 
 	blogNames, err := buildBlogNames(db)
 	if err != nil {
@@ -181,27 +287,17 @@ func buildBlogNames(db *storage.Database) (map[int64]string, error) {
 	return blogNames, nil
 }
 
-func filterByInterest(articles []model.Article, filter string) []model.Article {
-	switch filter {
-	case "prefer":
-		filtered := articles[:0:0]
-		for _, a := range articles {
-			if a.InterestState == model.InterestStatePrefer {
-				filtered = append(filtered, a)
-			}
-		}
-		return filtered
-	case "norm":
-		filtered := articles[:0:0]
-		for _, a := range articles {
-			if a.InterestState != model.InterestStateHide {
-				filtered = append(filtered, a)
-			}
-		}
-		return filtered
-	default:
+func filterByInterest(articles []model.Article, filter InterestFilter) []model.Article {
+	if filter.all {
 		return articles
 	}
+	filtered := articles[:0:0]
+	for _, a := range articles {
+		if filter.Match(a) {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
 }
 
 func ExportBlogsScript(db *storage.Database) (string, error) {
@@ -266,7 +362,7 @@ func MarkArticleRead(db *storage.Database, articleID int64) (model.Article, erro
 	return *article, nil
 }
 
-func MarkArticlesReadByScope(db *storage.Database, blogName string, scope string) ([]model.Article, error) {
+func MarkArticlesReadByFilter(db *storage.Database, blogName string, filter InterestFilter) ([]model.Article, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -284,15 +380,7 @@ func MarkArticlesReadByScope(db *storage.Database, blogName string, scope string
 		return nil, err
 	}
 
-	if scope != "all" {
-		filtered := articles[:0:0]
-		for _, a := range articles {
-			if a.InterestState == scope {
-				filtered = append(filtered, a)
-			}
-		}
-		articles = filtered
-	}
+	articles = filterByInterest(articles, filter)
 
 	for _, article := range articles {
 		_, err := db.MarkArticleRead(article.ID)
@@ -397,7 +485,15 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 	return SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, nil, hnOpts)
 }
 
+func SummarizeArticlesByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
+	return SummarizeArticlesDebugByFilter(db, showAll, blogName, filter, forceExtractive, refresh, limit, workers, opts, nil, hnOpts)
+}
+
 func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
+	return SummarizeArticlesDebugByFilter(db, showAll, blogName, AllInterestFilter(), forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
+}
+
+func SummarizeArticlesDebugByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -414,6 +510,7 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 	if err != nil {
 		return nil, err
 	}
+	articles = filterByInterest(articles, filter)
 
 	if limit > 0 {
 		articlesToSummarize := 0
@@ -571,7 +668,15 @@ func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName strin
 	return ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts)
 }
 
+func ClassifyArticlesInterestByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts HackerNewsOptions) ([]InterestResult, error) {
+	return ClassifyArticlesInterestDebugByFilter(db, showAll, blogName, filter, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts)
+}
+
 func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
+	return ClassifyArticlesInterestDebugByFilter(db, showAll, blogName, AllInterestFilter(), refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
+}
+
+func ClassifyArticlesInterestDebugByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -588,6 +693,7 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 	if err != nil {
 		return nil, err
 	}
+	articles = filterByInterest(articles, filter)
 
 	blogs, err := db.ListBlogs()
 	if err != nil {

@@ -309,7 +309,7 @@ func newArticlesCommand() *cobra.Command {
 	var blogName string
 	var showSummary bool
 	var verbose bool
-	var interestFilter string
+	var interestFilterValues []string
 	var sortFlag string
 	var jsonOut bool
 
@@ -321,16 +321,17 @@ Otherwise list unread articles (or all with --all).
 
 The --filter flag controls interest-based filtering:
   all     no filtering (default)
-  norm    show prefer and normal only (hide "hide")
-  prefer  show prefer only
+  hide    show hide-classified only
+  normal  show normal-classified and unclassified (alias: norm)
+  prefer  show prefer-classified only (alias: pref)
+
+Repeat --filter or pass a comma-separated list to combine filters.
 
 Use --json for a machine-readable list with full article fields and cached HN
 data (when available) for agentic use.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			switch interestFilter {
-			case "all", "norm", "prefer":
-			default:
-				err := fmt.Errorf("invalid --filter value: %q (must be all, norm, or prefer)", interestFilter)
+			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
+			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
 				}
@@ -371,7 +372,7 @@ data (when available) for agentic use.`,
 				}
 				articles, blogNames, err = controller.GetArticlesByIDs(db, ids)
 			} else {
-				articles, blogNames, err = controller.GetArticles(db, showAll, blogName, interestFilter)
+				articles, blogNames, err = controller.GetArticlesByFilter(db, showAll, blogName, interestFilter)
 			}
 			if err != nil {
 				if jsonOut {
@@ -422,37 +423,38 @@ data (when available) for agentic use.`,
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside articles")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
-	cmd.Flags().StringVarP(&interestFilter, "filter", "f", "all", "Interest filter: all, norm, prefer")
+	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
 
 func newReadCommand() *cobra.Command {
-	var scope string
+	var filterValues []string
 	var blogName string
 	var yes bool
 
 	cmd := &cobra.Command{
 		Use:   "read [article_id ...]",
-		Short: "Mark articles as read by ID or by interest scope.",
+		Short: "Mark articles as read by ID or by interest filter.",
 		Long: `Mark one or more articles as read by ID, or mark all unread articles
-matching an interest scope.
+matching an interest filter.
 
 Examples:
   blogwatcher read 42
   blogwatcher read 42 99 101
-  blogwatcher read --scope hide
-  blogwatcher read --scope all --blog "Tech Blog" --yes`,
+  blogwatcher read --filter hide
+  blogwatcher read --filter all --blog "Tech Blog" --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if scope != "" && len(args) > 0 {
-				return fmt.Errorf("cannot combine --scope with article IDs")
+			if len(filterValues) > 0 && len(args) > 0 {
+				return fmt.Errorf("cannot combine --filter with article IDs")
 			}
-			if scope == "" && len(args) == 0 {
-				return fmt.Errorf("provide article IDs or use --scope")
+			if len(filterValues) == 0 && len(args) == 0 {
+				return fmt.Errorf("provide article IDs or use --filter")
 			}
-			if scope != "" && scope != "all" && scope != "hide" && scope != "normal" && scope != "prefer" {
-				return fmt.Errorf("invalid --scope value %q: must be hide, normal, prefer, or all", scope)
+			interestFilter, err := controller.ParseInterestFilter(filterValues)
+			if err != nil {
+				return err
 			}
 
 			db, err := storage.OpenDatabase("")
@@ -461,8 +463,8 @@ Examples:
 			}
 			defer db.Close()
 
-			if scope != "" {
-				return readByScope(db, blogName, scope, yes)
+			if len(filterValues) > 0 {
+				return readByFilter(db, blogName, interestFilter, yes)
 			}
 
 			for _, arg := range args {
@@ -485,31 +487,33 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "", "Mark read by interest scope: hide, normal, prefer, all")
-	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Only mark articles from this blog (with --scope)")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt (with --scope)")
+	cmd.Flags().StringArrayVarP(&filterValues, "filter", "f", nil, "Mark read by interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
+	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Only mark articles from this blog (with --filter)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt (with --filter)")
 	return cmd
 }
 
-func readByScope(db *storage.Database, blogName string, scope string, yes bool) error {
-	articles, _, err := controller.GetArticles(db, false, blogName, "all")
+func readByFilter(db *storage.Database, blogName string, filter controller.InterestFilter, yes bool) error {
+	allArticles, _, err := controller.GetArticles(db, false, blogName, "all")
 	if err != nil {
 		printError(err)
 		return markError(err)
 	}
 
-	// Filter by exact interest state match (scope != filterByInterest).
-	if scope != "all" {
+	articles := make([]model.Article, 0, len(allArticles))
+	for _, a := range allArticles {
+		if filter.Match(a) {
+			articles = append(articles, a)
+		}
+	}
+
+	if !filter.Match(model.Article{}) {
 		var unclassified int
-		filtered := articles[:0:0]
-		for _, a := range articles {
-			if a.InterestState == scope {
-				filtered = append(filtered, a)
-			} else if a.InterestState == "" {
+		for _, a := range allArticles {
+			if a.InterestState == "" {
 				unclassified++
 			}
 		}
-		articles = filtered
 		if unclassified > 0 {
 			interestCmd := "blogwatcher interest"
 			if blogName != "" {
@@ -527,7 +531,7 @@ func readByScope(db *storage.Database, blogName string, scope string, yes bool) 
 	}
 
 	if !yes {
-		desc := fmt.Sprintf("scope=%s", scope)
+		desc := fmt.Sprintf("filter=%s", filter.String())
 		if blogName != "" {
 			desc += fmt.Sprintf(", blog='%s'", blogName)
 		}
@@ -540,7 +544,7 @@ func readByScope(db *storage.Database, blogName string, scope string, yes bool) 
 		}
 	}
 
-	marked, err := controller.MarkArticlesReadByScope(db, blogName, scope)
+	marked, err := controller.MarkArticlesReadByFilter(db, blogName, filter)
 	if err != nil {
 		printError(err)
 		return markError(err)
@@ -584,6 +588,7 @@ func newUnreadCommand() *cobra.Command {
 func newSummaryCommand() *cobra.Command {
 	var blogName string
 	var showAll bool
+	var interestFilterValues []string
 	var forceExtractive bool
 	var refresh bool
 	var limit int
@@ -632,6 +637,10 @@ threads are truncated to hackernews_max_request_bytes before the LLM call.
 Use --json for a machine-readable list of summary results (with engine, cached,
 upgraded, warning, and HN data) for agentic use.
 
+Use --filter to select articles by interest state before summarizing:
+all, hide, normal/norm, prefer/pref. Repeat --filter or pass a comma-separated
+list to combine filters.
+
 Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
   gpt-4o-mini     ~$0.0015/article   (cheapest, older model)
@@ -647,6 +656,14 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 			}
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
+			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -713,7 +730,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				}
 				printSummaryResult(result, verbose)
 			} else {
-				results, err := controller.SummarizeArticlesDebug(db, showAll, blogName, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
+				results, err := controller.SummarizeArticlesDebugByFilter(db, showAll, blogName, interestFilter, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
 				if err != nil {
 					if jsonOut {
 						return emitJSONError(err)
@@ -755,6 +772,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Summarize all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback (first ~2K chars, ignore OPENAI_API_KEY)")
 	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-generate summary even if cached")
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to summarize (safety limit for LLM costs)")
@@ -773,6 +791,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 func newInterestCommand() *cobra.Command {
 	var blogName string
 	var showAll bool
+	var interestFilterValues []string
 	var refresh bool
 	var refreshSummary bool
 	var forceExtractive bool
@@ -819,7 +838,11 @@ Use --hn or [summary].hackernews=true to add cached or missing Hacker News data.
 Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regenerates them.
 
 Use --json for a machine-readable list of interest results (with engine, cached,
-skipped, note, and HN data) for agentic use.`,
+skipped, note, and HN data) for agentic use.
+
+Use --filter to select articles by interest state before classifying:
+all, hide, normal/norm, prefer/pref. Repeat --filter or pass a comma-separated
+list to combine filters.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
@@ -829,6 +852,14 @@ skipped, note, and HN data) for agentic use.`,
 			}
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
+			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -899,7 +930,7 @@ skipped, note, and HN data) for agentic use.`,
 				return nil
 			}
 
-			results, err := controller.ClassifyArticlesInterestDebug(db, showAll, blogName, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
+			results, err := controller.ClassifyArticlesInterestDebugByFilter(db, showAll, blogName, interestFilter, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -941,6 +972,7 @@ skipped, note, and HN data) for agentic use.`,
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Classify all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
+	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-classify interest even if cached")
 	cmd.Flags().BoolVar(&refreshSummary, "refresh-summary", false, "Re-generate summaries before classification")
 	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback when generating missing summaries")

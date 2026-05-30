@@ -20,14 +20,16 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher articles <id> [id...]` | Show specific articles by ID |
 | `blogwatcher articles --all` | All articles (including read) |
 | `blogwatcher articles --blog <name>` | Unread articles for one blog |
-| `blogwatcher articles --filter norm` | Hide `hide`-classified, show prefer+normal |
-| `blogwatcher articles --filter prefer` | Show only `prefer`-classified articles |
+| `blogwatcher articles --filter norm` | Show normal-classified plus unclassified articles |
+| `blogwatcher articles --filter pref` | Show only `prefer`-classified articles |
+| `blogwatcher summary --filter prefer` | Summarize only prefer-classified articles |
+| `blogwatcher interest --filter normal` | Classify normal-classified plus unclassified articles |
 | `blogwatcher articles --sort oldest` | Order by date (earliest first; default is `newest`) |
 | `blogwatcher articles -s` | Show cached summary text alongside articles |
 | `blogwatcher articles -v` | Show blog, engine, summary size, timestamp, and cached HN metadata |
 | `blogwatcher read <id> [id...]` | Mark article(s) as read |
-| `blogwatcher read --scope hide` | Mark all hide-classified unread articles as read |
-| `blogwatcher read --scope all` | Mark all unread articles as read |
+| `blogwatcher read --filter hide` | Mark all hide-classified unread articles as read |
+| `blogwatcher read --filter all` | Mark all unread articles as read |
 | `blogwatcher unread <id>` | Mark article back to unread |
 | `blogwatcher summary [id]` | Summarize article(s) (AI or extractive fallback) |
 | `blogwatcher summary --all` | Summarize all articles including read |
@@ -47,6 +49,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher export` | Export blog definitions as portable shell script |
 | `blogwatcher skill` | Print this skill document |
 
+Common flags for `articles`, `summary`, `interest`, and bulk `read`: `--filter <value>` where values are `all`, `hide`, `normal`/`norm`, `prefer`/`pref`; repeat or comma-separate values to combine them.
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`, `--hn`, `--hn-refresh`, `--hn-limit N`
 Common flags for `articles` and `interest`: `--summary` (show cached summary text)
 Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
@@ -174,8 +177,9 @@ This generates summaries for articles that lack one, then classifies all unread 
 ### 3. Review articles
 
 ```
-blogwatcher articles -f norm -v      # unread, excluding hide-classified
-blogwatcher articles -f prefer -v    # prefer-only
+blogwatcher articles -f norm -v      # normal plus unclassified
+blogwatcher articles -f pref -v      # prefer-only
+blogwatcher articles -f prefer,norm  # prefer plus normal plus unclassified
 blogwatcher articles -v -s           # unread with summaries
 blogwatcher articles -v -s 42 99     # specific articles with summaries
 blogwatcher interest -v -s           # interest results with summary text
@@ -186,7 +190,7 @@ blogwatcher interest -v -s           # interest results with summary text
 ### 4. Clean up
 
 ```
-blogwatcher read --scope hide -y     # mark all hide-classified as read
+blogwatcher read --filter hide -y    # mark all hide-classified as read
 blogwatcher read 42 99               # mark specific articles as read
 ```
 

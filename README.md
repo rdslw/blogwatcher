@@ -107,9 +107,11 @@ blogwatcher articles --blog "Tech Blog"
 # Show specific articles by ID
 blogwatcher articles 42 99
 
-# Filter by interest: all (default), norm (prefer+normal), prefer
+# Filter by interest: all (default), hide, normal/norm, prefer/pref
 blogwatcher articles --filter norm
-blogwatcher articles -f prefer
+blogwatcher articles -f pref
+blogwatcher articles -f prefer,norm
+blogwatcher articles -f prefer -f normal
 
 # Show blog, engine, summary size, and timestamp metadata
 blogwatcher articles --verbose
@@ -135,6 +137,9 @@ blogwatcher summary
 
 # Summarize all articles for a blog
 blogwatcher summary --all --blog "Tech Blog"
+
+# Summarize only prefer-classified articles
+blogwatcher summary --filter pref
 
 # Refresh cached summaries
 blogwatcher summary --refresh
@@ -186,6 +191,9 @@ blogwatcher interest --refresh-summary
 
 # Classify all articles for one blog
 blogwatcher interest --all --blog "Tech Blog"
+
+# Classify normal-classified and unclassified articles
+blogwatcher interest --filter norm
 
 # Show cached summary text alongside interest results
 blogwatcher interest --summary
@@ -297,8 +305,8 @@ Prompt writing tips:
 blogwatcher blogs --json
 blogwatcher articles --json
 blogwatcher articles --filter prefer --json
-blogwatcher summary --json
-blogwatcher interest --json
+blogwatcher summary --filter pref --json
+blogwatcher interest --filter norm --json
 ```
 
 Envelope shapes:
@@ -335,17 +343,17 @@ blogwatcher read 42 99 101
 # Mark an article as unread
 blogwatcher unread 42
 
-# Mark all unread articles as read (by interest scope)
-blogwatcher read --scope all
+# Mark all unread articles as read
+blogwatcher read --filter all
 
 # Mark all "hide" articles as read
-blogwatcher read --scope hide
+blogwatcher read --filter hide
 
-# Mark all "normal" articles as read for a blog (skip prompt)
-blogwatcher read --scope normal --blog "Tech Blog" --yes
+# Mark all "normal" and unclassified articles as read for a blog (skip prompt)
+blogwatcher read --filter norm --blog "Tech Blog" --yes
 
 # Mark all "prefer" articles as read
-blogwatcher read --scope prefer
+blogwatcher read --filter pref
 ```
 
 ## How It Works

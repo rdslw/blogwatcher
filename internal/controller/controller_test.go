@@ -137,12 +137,12 @@ func TestGetArticlesInterestFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter norm: %v", err)
 	}
-	if len(norm) != 3 {
-		t.Fatalf("expected 3 articles with filter=norm, got %d", len(norm))
+	if len(norm) != 2 {
+		t.Fatalf("expected 2 articles with filter=norm, got %d", len(norm))
 	}
 	for _, a := range norm {
-		if a.InterestState == model.InterestStateHide {
-			t.Fatalf("filter=norm should not include hidden articles")
+		if a.InterestState != model.InterestStateNormal && a.InterestState != "" {
+			t.Fatalf("filter=norm should include only normal and unclassified articles, got %q", a.InterestState)
 		}
 	}
 
@@ -156,9 +156,40 @@ func TestGetArticlesInterestFilter(t *testing.T) {
 	if prefer[0].InterestState != model.InterestStatePrefer {
 		t.Fatalf("expected prefer state, got %q", prefer[0].InterestState)
 	}
+
+	prefFilter, err := ParseInterestFilter([]string{"pref"})
+	if err != nil {
+		t.Fatalf("parse pref: %v", err)
+	}
+	pref, _, err := GetArticlesByFilter(db, true, "", prefFilter)
+	if err != nil {
+		t.Fatalf("filter pref: %v", err)
+	}
+	if len(pref) != 1 || pref[0].InterestState != model.InterestStatePrefer {
+		t.Fatalf("expected pref alias to match prefer, got %+v", pref)
+	}
+
+	combinedFilter, err := ParseInterestFilter([]string{"hide,normal", "pref"})
+	if err != nil {
+		t.Fatalf("parse combined filter: %v", err)
+	}
+	combined, _, err := GetArticlesByFilter(db, true, "", combinedFilter)
+	if err != nil {
+		t.Fatalf("filter combined: %v", err)
+	}
+	if len(combined) != 4 {
+		t.Fatalf("expected combined filter to include all 4 articles, got %d", len(combined))
+	}
+
+	if _, err := ParseInterestFilter([]string{"unknown"}); err == nil {
+		t.Fatalf("expected invalid filter error")
+	}
+	if _, err := ParseInterestFilter([]string{"all,pref"}); err == nil {
+		t.Fatalf("expected all plus specific filter error")
+	}
 }
 
-func TestMarkArticlesReadByScope(t *testing.T) {
+func TestMarkArticlesReadByFilter(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
@@ -186,35 +217,44 @@ func TestMarkArticlesReadByScope(t *testing.T) {
 		}
 	}
 
-	// scope=hide should mark only the hidden article
-	marked, err := MarkArticlesReadByScope(db, "", "hide")
+	hideFilter, err := ParseInterestFilter([]string{"hide"})
 	if err != nil {
-		t.Fatalf("scope hide: %v", err)
+		t.Fatalf("parse hide filter: %v", err)
+	}
+	marked, err := MarkArticlesReadByFilter(db, "", hideFilter)
+	if err != nil {
+		t.Fatalf("filter hide: %v", err)
 	}
 	if len(marked) != 1 || marked[0].Title != "Hidden" {
 		t.Fatalf("expected 1 hidden article marked, got %d", len(marked))
 	}
 
-	// scope=prefer should mark only the preferred article
-	marked, err = MarkArticlesReadByScope(db, "", "prefer")
+	preferFilter, err := ParseInterestFilter([]string{"pref"})
 	if err != nil {
-		t.Fatalf("scope prefer: %v", err)
+		t.Fatalf("parse prefer filter: %v", err)
+	}
+	marked, err = MarkArticlesReadByFilter(db, "", preferFilter)
+	if err != nil {
+		t.Fatalf("filter prefer: %v", err)
 	}
 	if len(marked) != 1 || marked[0].Title != "Preferred" {
 		t.Fatalf("expected 1 preferred article marked, got %d", len(marked))
 	}
 
-	// scope=all should mark remaining unread (normal + unclassified)
-	marked, err = MarkArticlesReadByScope(db, "", "all")
+	allFilter, err := ParseInterestFilter([]string{"all"})
 	if err != nil {
-		t.Fatalf("scope all: %v", err)
+		t.Fatalf("parse all filter: %v", err)
+	}
+	marked, err = MarkArticlesReadByFilter(db, "", allFilter)
+	if err != nil {
+		t.Fatalf("filter all: %v", err)
 	}
 	if len(marked) != 2 {
 		t.Fatalf("expected 2 remaining articles marked, got %d", len(marked))
 	}
 }
 
-func TestMarkArticlesReadByScopeWithBlog(t *testing.T) {
+func TestMarkArticlesReadByFilterWithBlog(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
@@ -237,9 +277,13 @@ func TestMarkArticlesReadByScopeWithBlog(t *testing.T) {
 		}
 	}
 
-	marked, err := MarkArticlesReadByScope(db, "Blog1", "hide")
+	hideFilter, err := ParseInterestFilter([]string{"hide"})
 	if err != nil {
-		t.Fatalf("scope hide blog1: %v", err)
+		t.Fatalf("parse hide filter: %v", err)
+	}
+	marked, err := MarkArticlesReadByFilter(db, "Blog1", hideFilter)
+	if err != nil {
+		t.Fatalf("filter hide blog1: %v", err)
 	}
 	if len(marked) != 1 {
 		t.Fatalf("expected 1 article from Blog1, got %d", len(marked))
@@ -252,6 +296,113 @@ func TestMarkArticlesReadByScopeWithBlog(t *testing.T) {
 	}
 	if len(remaining) != 1 {
 		t.Fatalf("expected Blog2 article still unread, got %d", len(remaining))
+	}
+}
+
+func TestSummarizeArticlesByFilterAppliesBeforeLimit(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	preferred, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Preferred", URL: "https://example.com/preferred"})
+	if err != nil {
+		t.Fatalf("add preferred article: %v", err)
+	}
+	hidden, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Hidden", URL: "https://example.com/hidden"})
+	if err != nil {
+		t.Fatalf("add hidden article: %v", err)
+	}
+	if err := db.UpdateArticleInterest(preferred.ID, model.InterestStatePrefer, "test", "test", time.Now()); err != nil {
+		t.Fatalf("update preferred interest: %v", err)
+	}
+	if err := db.UpdateArticleInterest(hidden.ID, model.InterestStateHide, "test", "test", time.Now()); err != nil {
+		t.Fatalf("update hidden interest: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	var summarized []string
+	summarizeArticleFn = func(url string, forceExtractive bool, opts summarizer.Options) (summarizer.Result, error) {
+		summarized = append(summarized, url)
+		return summarizer.Result{Summary: "summary", Engine: summarizer.EngineSnippet}, nil
+	}
+
+	filter, err := ParseInterestFilter([]string{"pref"})
+	if err != nil {
+		t.Fatalf("parse filter: %v", err)
+	}
+	results, err := SummarizeArticlesByFilter(db, false, "", filter, false, false, 1, 1, summarizer.Options{}, HackerNewsOptions{})
+	if err != nil {
+		t.Fatalf("summarize filtered articles: %v", err)
+	}
+	if len(results) != 1 || results[0].Article.ID != preferred.ID {
+		t.Fatalf("expected only preferred article, got %+v", results)
+	}
+	if len(summarized) != 1 || summarized[0] != preferred.URL {
+		t.Fatalf("expected only preferred URL summarized, got %v", summarized)
+	}
+}
+
+func TestClassifyArticlesInterestByFilterAppliesBeforeLimit(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	hidden, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Hidden", URL: "https://example.com/hidden"})
+	if err != nil {
+		t.Fatalf("add hidden article: %v", err)
+	}
+	preferred, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Preferred", URL: "https://example.com/preferred"})
+	if err != nil {
+		t.Fatalf("add preferred article: %v", err)
+	}
+	for _, article := range []model.Article{hidden, preferred} {
+		if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+			t.Fatalf("cache summary: %v", err)
+		}
+	}
+	if err := db.UpdateArticleInterest(hidden.ID, model.InterestStateHide, "test", "test", time.Now()); err != nil {
+		t.Fatalf("update hidden interest: %v", err)
+	}
+	if err := db.UpdateArticleInterest(preferred.ID, model.InterestStatePrefer, "test", "test", time.Now()); err != nil {
+		t.Fatalf("update preferred interest: %v", err)
+	}
+
+	originalClassify := classifyInterestFn
+	t.Cleanup(func() {
+		classifyInterestFn = originalClassify
+	})
+
+	var classified int
+	classifyInterestFn = func(blogName string, summary string, prompt string, opts interest.Options) (interest.Result, error) {
+		classified++
+		return interest.Result{State: model.InterestStateHide, Reason: "still hidden", Engine: interest.EngineOpenAI}, nil
+	}
+
+	filter, err := ParseInterestFilter([]string{"hide"})
+	if err != nil {
+		t.Fatalf("parse filter: %v", err)
+	}
+	results, err := ClassifyArticlesInterestByFilter(db, false, "", filter, true, false, false, 1, 1, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "classify",
+	}, HackerNewsOptions{})
+	if err != nil {
+		t.Fatalf("classify filtered articles: %v", err)
+	}
+	if len(results) != 1 || results[0].Article.ID != hidden.ID {
+		t.Fatalf("expected only hidden article, got %+v", results)
+	}
+	if classified != 1 {
+		t.Fatalf("expected one classification call, got %d", classified)
 	}
 }
 
