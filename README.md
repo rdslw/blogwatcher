@@ -14,9 +14,10 @@ Short list of changes in this fork:
 - **HN cost controls**: HN enrichment has its own cache, refresh flag, request-size limit, and `--hn-limit` guard for large runs.
 - **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
 - **JSON output**: `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic consumers.
+- **Time-bounded queries**: `--since` on `articles`, `summary`, and `interest` to select posts by date or recent day count.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
 
-## Features
+## Features (original, pre-fork)
 
 -   **Dual Source Support** - Tries RSS feeds first, falls back to HTML scraping
 -   **RSS Summaries** - Automatically pre-fills article summaries from RSS feed descriptions during scan
@@ -104,6 +105,10 @@ blogwatcher articles --all
 # List articles from a specific blog
 blogwatcher articles --blog "Tech Blog"
 
+# List posts since a date, or since N days ago
+blogwatcher articles --since 2026-05-01
+blogwatcher articles --since 7
+
 # Show specific articles by ID
 blogwatcher articles 42 99
 
@@ -140,6 +145,10 @@ blogwatcher summary --all --blog "Tech Blog"
 
 # Summarize only prefer-classified articles
 blogwatcher summary --filter pref
+
+# Summarize posts since a date, or since N days ago
+blogwatcher summary --since 2026-05-01
+blogwatcher summary --since 7
 
 # Refresh cached summaries
 blogwatcher summary --refresh
@@ -194,6 +203,10 @@ blogwatcher interest --all --blog "Tech Blog"
 
 # Classify normal-classified and unclassified articles
 blogwatcher interest --filter norm
+
+# Classify posts since a date, or since N days ago
+blogwatcher interest --since 2026-05-01
+blogwatcher interest --since 7
 
 # Show cached summary text alongside interest results
 blogwatcher interest --summary
@@ -305,6 +318,7 @@ Prompt writing tips:
 blogwatcher blogs --json
 blogwatcher articles --json
 blogwatcher articles --filter prefer --json
+blogwatcher articles --since 7 --json
 blogwatcher summary --filter pref --json
 blogwatcher interest --filter norm --json
 ```

@@ -68,6 +68,30 @@ func TestArticleReadUnread(t *testing.T) {
 	}
 }
 
+func articleIDs(articles []model.Article) []int64 {
+	ids := make([]int64, len(articles))
+	for i, article := range articles {
+		ids[i] = article.ID
+	}
+	return ids
+}
+
+func equalArticleIDSet(articles []model.Article, want []int64) bool {
+	if len(articles) != len(want) {
+		return false
+	}
+	gotSet := make(map[int64]struct{}, len(articles))
+	for _, article := range articles {
+		gotSet[article.ID] = struct{}{}
+	}
+	for _, id := range want {
+		if _, ok := gotSet[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func TestGetArticlesFilters(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
@@ -186,6 +210,146 @@ func TestGetArticlesInterestFilter(t *testing.T) {
 	}
 	if _, err := ParseInterestFilter([]string{"all,pref"}); err == nil {
 		t.Fatalf("expected all plus specific filter error")
+	}
+}
+
+func TestParseSince(t *testing.T) {
+	loc := time.FixedZone("test", 2*60*60)
+	now := time.Date(2026, 5, 30, 15, 45, 0, 0, loc)
+
+	cases := []struct {
+		value string
+		want  time.Time
+	}{
+		{"2026-05-01", time.Date(2026, 5, 1, 0, 0, 0, 0, loc)},
+		{"7", time.Date(2026, 5, 23, 0, 0, 0, 0, loc)},
+		{"0", time.Date(2026, 5, 30, 0, 0, 0, 0, loc)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			got, err := ParseSince(tc.value, now)
+			if err != nil {
+				t.Fatalf("ParseSince(%q): %v", tc.value, err)
+			}
+			if got == nil || !got.Equal(tc.want) {
+				t.Fatalf("ParseSince(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+
+	if got, err := ParseSince("", now); err != nil || got != nil {
+		t.Fatalf("ParseSince empty = %v, %v; want nil, nil", got, err)
+	}
+	if _, err := ParseSince("not-a-date", now); err == nil {
+		t.Fatalf("expected invalid string error")
+	}
+	if _, err := ParseSince("-1", now); err == nil {
+		t.Fatalf("expected negative days error")
+	}
+}
+
+func TestGetArticlesByFilterSince(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	otherBlog, err := AddBlog(db, "Other", "https://other.example.com", "", "")
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	oldPublished := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	newPublished := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)
+	newDiscovered := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+
+	oldWithNewDiscovery, err := db.AddArticle(model.Article{
+		BlogID:         blog.ID,
+		Title:          "Old published with new discovery",
+		URL:            "https://example.com/old-published",
+		PublishedDate:  &oldPublished,
+		DiscoveredDate: &newDiscovered,
+	})
+	if err != nil {
+		t.Fatalf("add old published: %v", err)
+	}
+	cutoffArticle, err := db.AddArticle(model.Article{
+		BlogID:        blog.ID,
+		Title:         "Cutoff",
+		URL:           "https://example.com/cutoff",
+		PublishedDate: &cutoff,
+	})
+	if err != nil {
+		t.Fatalf("add cutoff article: %v", err)
+	}
+	newArticle, err := db.AddArticle(model.Article{
+		BlogID:        blog.ID,
+		Title:         "New",
+		URL:           "https://example.com/new",
+		PublishedDate: &newPublished,
+	})
+	if err != nil {
+		t.Fatalf("add new article: %v", err)
+	}
+	fallbackArticle, err := db.AddArticle(model.Article{
+		BlogID:         blog.ID,
+		Title:          "Fallback",
+		URL:            "https://example.com/fallback",
+		DiscoveredDate: &newDiscovered,
+	})
+	if err != nil {
+		t.Fatalf("add fallback article: %v", err)
+	}
+	noDate, err := db.AddArticle(model.Article{
+		BlogID: blog.ID,
+		Title:  "No date",
+		URL:    "https://example.com/no-date",
+	})
+	if err != nil {
+		t.Fatalf("add no-date article: %v", err)
+	}
+	other, err := db.AddArticle(model.Article{
+		BlogID:        otherBlog.ID,
+		Title:         "Other",
+		URL:           "https://other.example.com/new",
+		PublishedDate: &newPublished,
+	})
+	if err != nil {
+		t.Fatalf("add other article: %v", err)
+	}
+
+	for _, article := range []model.Article{cutoffArticle, newArticle, fallbackArticle, oldWithNewDiscovery, noDate, other} {
+		if err := db.UpdateArticleInterest(article.ID, model.InterestStatePrefer, "test", "test", time.Now()); err != nil {
+			t.Fatalf("update interest for %d: %v", article.ID, err)
+		}
+	}
+	if _, err := db.MarkArticleRead(newArticle.ID); err != nil {
+		t.Fatalf("mark new article read: %v", err)
+	}
+
+	filter, err := ParseInterestFilter([]string{"pref"})
+	if err != nil {
+		t.Fatalf("parse filter: %v", err)
+	}
+
+	unread, _, err := GetArticlesByFilterSince(db, false, "Test", filter, &cutoff)
+	if err != nil {
+		t.Fatalf("get unread since: %v", err)
+	}
+	if !equalArticleIDSet(unread, []int64{cutoffArticle.ID, fallbackArticle.ID}) {
+		t.Fatalf("unread since got IDs %v", articleIDs(unread))
+	}
+
+	all, _, err := GetArticlesByFilterSince(db, true, "Test", filter, &cutoff)
+	if err != nil {
+		t.Fatalf("get all since: %v", err)
+	}
+	if !equalArticleIDSet(all, []int64{cutoffArticle.ID, newArticle.ID, fallbackArticle.ID}) {
+		t.Fatalf("all since got IDs %v", articleIDs(all))
 	}
 }
 
@@ -349,6 +513,57 @@ func TestSummarizeArticlesByFilterAppliesBeforeLimit(t *testing.T) {
 	}
 }
 
+func TestSummarizeArticlesSinceAppliesBeforeLimit(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	oldDate := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	newDate := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)
+
+	oldArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Old", URL: "https://example.com/old", PublishedDate: &oldDate})
+	if err != nil {
+		t.Fatalf("add old article: %v", err)
+	}
+	newArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "New", URL: "https://example.com/new", PublishedDate: &newDate})
+	if err != nil {
+		t.Fatalf("add new article: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+
+	var summarized []int64
+	summarizeArticleFn = func(url string, forceExtractive bool, opts summarizer.Options) (summarizer.Result, error) {
+		switch url {
+		case oldArticle.URL:
+			summarized = append(summarized, oldArticle.ID)
+		case newArticle.URL:
+			summarized = append(summarized, newArticle.ID)
+		default:
+			t.Fatalf("unexpected URL summarized: %s", url)
+		}
+		return summarizer.Result{Summary: "summary", Engine: summarizer.EngineSnippet}, nil
+	}
+
+	results, err := SummarizeArticlesDebugByFilterSince(db, false, "", AllInterestFilter(), &cutoff, false, false, 1, 1, summarizer.Options{}, nil, HackerNewsOptions{})
+	if err != nil {
+		t.Fatalf("summarize since: %v", err)
+	}
+	if len(results) != 1 || results[0].Article.ID != newArticle.ID {
+		t.Fatalf("expected only new article, got %+v", results)
+	}
+	if len(summarized) != 1 || summarized[0] != newArticle.ID {
+		t.Fatalf("expected only new article summarized, got %v", summarized)
+	}
+}
+
 func TestClassifyArticlesInterestByFilterAppliesBeforeLimit(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
@@ -400,6 +615,57 @@ func TestClassifyArticlesInterestByFilterAppliesBeforeLimit(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Article.ID != hidden.ID {
 		t.Fatalf("expected only hidden article, got %+v", results)
+	}
+	if classified != 1 {
+		t.Fatalf("expected one classification call, got %d", classified)
+	}
+}
+
+func TestClassifyArticlesInterestSinceAppliesBeforeLimit(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	oldDate := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	newDate := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)
+
+	oldArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Old", URL: "https://example.com/old", PublishedDate: &oldDate})
+	if err != nil {
+		t.Fatalf("add old article: %v", err)
+	}
+	newArticle, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "New", URL: "https://example.com/new", PublishedDate: &newDate})
+	if err != nil {
+		t.Fatalf("add new article: %v", err)
+	}
+	for _, article := range []model.Article{oldArticle, newArticle} {
+		if err := db.UpdateArticleSummary(article.ID, "cached summary", summarizer.EngineSnippet); err != nil {
+			t.Fatalf("cache summary: %v", err)
+		}
+	}
+
+	originalClassify := classifyInterestFn
+	t.Cleanup(func() {
+		classifyInterestFn = originalClassify
+	})
+
+	var classified int
+	classifyInterestFn = func(blogName string, summary string, prompt string, opts interest.Options) (interest.Result, error) {
+		classified++
+		return interest.Result{State: model.InterestStatePrefer, Reason: "test", Engine: interest.EngineOpenAI}, nil
+	}
+
+	results, err := ClassifyArticlesInterestDebugByFilterSince(db, false, "", AllInterestFilter(), &cutoff, false, false, false, 1, 1, summarizer.Options{}, config.InterestConfig{
+		InterestPrompt: "classify",
+	}, nil, HackerNewsOptions{})
+	if err != nil {
+		t.Fatalf("classify since: %v", err)
+	}
+	if len(results) != 1 || results[0].Article.ID != newArticle.ID {
+		t.Fatalf("expected only new article, got %+v", results)
 	}
 	if classified != 1 {
 		t.Fatalf("expected one classification call, got %d", classified)

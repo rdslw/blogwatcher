@@ -24,6 +24,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher articles --filter pref` | Show only `prefer`-classified articles |
 | `blogwatcher summary --filter prefer` | Summarize only prefer-classified articles |
 | `blogwatcher interest --filter normal` | Classify normal-classified plus unclassified articles |
+| `blogwatcher articles --since 7` | Show posts from the last 7 days |
 | `blogwatcher articles --sort oldest` | Order by date (earliest first; default is `newest`) |
 | `blogwatcher articles -s` | Show cached summary text alongside articles |
 | `blogwatcher articles -v` | Show blog, engine, summary size, timestamp, and cached HN metadata |
@@ -50,6 +51,7 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand)
 | `blogwatcher skill` | Print this skill document |
 
 Common flags for `articles`, `summary`, `interest`, and bulk `read`: `--filter <value>` where values are `all`, `hide`, `normal`/`norm`, `prefer`/`pref`; repeat or comma-separate values to combine them.
+Common flags for `articles`, `summary`, and `interest`: `--since <YYYY-MM-DD|days>` narrows bulk/list queries to posts on or after the date, or within the last N days.
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`, `--hn`, `--hn-refresh`, `--hn-limit N`
 Common flags for `articles` and `interest`: `--summary` (show cached summary text)
 Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
@@ -180,6 +182,7 @@ This generates summaries for articles that lack one, then classifies all unread 
 blogwatcher articles -f norm -v      # normal plus unclassified
 blogwatcher articles -f pref -v      # prefer-only
 blogwatcher articles -f prefer,norm  # prefer plus normal plus unclassified
+blogwatcher articles --since 7 -v    # time-bounded review
 blogwatcher articles -v -s           # unread with summaries
 blogwatcher articles -v -s 42 99     # specific articles with summaries
 blogwatcher interest -v -s           # interest results with summary text

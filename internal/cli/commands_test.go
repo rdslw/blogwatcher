@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/rdslw/blogwatcher/internal/storage"
@@ -38,6 +39,26 @@ func TestFormatInterestStats(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := formatInterestStats(tt.stats); got != tt.want {
 				t.Fatalf("formatInterestStats() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSinceCannotCombineWithArticleIDs(t *testing.T) {
+	for _, args := range [][]string{
+		{"articles", "--since", "7", "42"},
+		{"summary", "--since", "7", "42"},
+		{"interest", "--since", "7", "42"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			cmd := NewRootCommand()
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), "cannot combine --since with article IDs") {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}

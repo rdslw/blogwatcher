@@ -1,13 +1,5 @@
 # TODO (ideas and tasks)
 
-## add --since DATE option to articles|summary|interest commands
-
-Goal: ability to show all posts since given date
-
-Data can be given as YYYY-MM-DD or simple integeter meaning number of days.
-Calculated from today.
-
-
 ## make build/release simpler and/or connected
 
 Goal: to not have conflicted binaries 

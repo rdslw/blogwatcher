@@ -311,6 +311,7 @@ func newArticlesCommand() *cobra.Command {
 	var verbose bool
 	var interestFilterValues []string
 	var sortFlag string
+	var sinceFlag string
 	var jsonOut bool
 
 	cmd := &cobra.Command{
@@ -327,9 +328,20 @@ The --filter flag controls interest-based filtering:
 
 Repeat --filter or pass a comma-separated list to combine filters.
 
+Use --since with YYYY-MM-DD or a number of days to show posts on or after the
+cutoff date. The filter uses published date, falling back to discovered date.
+
 Use --json for a machine-readable list with full article fields and cached HN
 data (when available) for agentic use.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sinceFlag != "" && len(args) > 0 {
+				err := fmt.Errorf("cannot combine --since with article IDs")
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
 			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
 			if err != nil {
 				if jsonOut {
@@ -339,6 +351,14 @@ data (when available) for agentic use.`,
 			}
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
+			since, err := controller.ParseSince(sinceFlag, time.Now())
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -372,7 +392,7 @@ data (when available) for agentic use.`,
 				}
 				articles, blogNames, err = controller.GetArticlesByIDs(db, ids)
 			} else {
-				articles, blogNames, err = controller.GetArticlesByFilter(db, showAll, blogName, interestFilter)
+				articles, blogNames, err = controller.GetArticlesByFilterSince(db, showAll, blogName, interestFilter, since)
 			}
 			if err != nil {
 				if jsonOut {
@@ -425,6 +445,7 @@ data (when available) for agentic use.`,
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
 	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().StringVar(&sinceFlag, "since", "", "Show posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
@@ -597,6 +618,7 @@ func newSummaryCommand() *cobra.Command {
 	var verbose bool
 	var debugFlag bool
 	var sortFlag string
+	var sinceFlag string
 	var hackerNews bool
 	var hackerNewsRefresh bool
 	var hackerNewsLimit int
@@ -641,6 +663,9 @@ Use --filter to select articles by interest state before summarizing:
 all, hide, normal/norm, prefer/pref. Repeat --filter or pass a comma-separated
 list to combine filters.
 
+Use --since with YYYY-MM-DD or a number of days to summarize posts on or after
+the cutoff date. The filter uses published date, falling back to discovered date.
+
 Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
   gpt-4o-mini     ~$0.0015/article   (cheapest, older model)
@@ -655,6 +680,14 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				dbg.Log("summary command started")
 			}
 
+			if sinceFlag != "" && len(args) > 0 {
+				err := fmt.Errorf("cannot combine --since with article IDs")
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
 			if err != nil {
 				if jsonOut {
@@ -664,6 +697,14 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 			}
 
 			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
+			since, err := controller.ParseSince(sinceFlag, time.Now())
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -730,7 +771,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				}
 				printSummaryResult(result, verbose)
 			} else {
-				results, err := controller.SummarizeArticlesDebugByFilter(db, showAll, blogName, interestFilter, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
+				results, err := controller.SummarizeArticlesDebugByFilterSince(db, showAll, blogName, interestFilter, since, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
 				if err != nil {
 					if jsonOut {
 						return emitJSONError(err)
@@ -781,6 +822,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().StringVar(&sinceFlag, "since", "", "Summarize posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
 	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
@@ -802,6 +844,7 @@ func newInterestCommand() *cobra.Command {
 	var showSummary bool
 	var debugFlag bool
 	var sortFlag string
+	var sinceFlag string
 	var hackerNews bool
 	var hackerNewsRefresh bool
 	var hackerNewsLimit int
@@ -842,13 +885,24 @@ skipped, note, and HN data) for agentic use.
 
 Use --filter to select articles by interest state before classifying:
 all, hide, normal/norm, prefer/pref. Repeat --filter or pass a comma-separated
-list to combine filters.`,
+list to combine filters.
+
+Use --since with YYYY-MM-DD or a number of days to classify posts on or after
+the cutoff date. The filter uses published date, falling back to discovered date.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
 			if debugFlag {
 				dbg = debug.New()
 				dbg.Log("interest command started")
+			}
+
+			if sinceFlag != "" && len(args) > 0 {
+				err := fmt.Errorf("cannot combine --since with article IDs")
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
 			}
 
 			sortOrder, err := controller.ParseSortOrder(sortFlag)
@@ -860,6 +914,14 @@ list to combine filters.`,
 			}
 
 			interestFilter, err := controller.ParseInterestFilter(interestFilterValues)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
+
+			since, err := controller.ParseSince(sinceFlag, time.Now())
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -930,7 +992,7 @@ list to combine filters.`,
 				return nil
 			}
 
-			results, err := controller.ClassifyArticlesInterestDebugByFilter(db, showAll, blogName, interestFilter, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
+			results, err := controller.ClassifyArticlesInterestDebugByFilterSince(db, showAll, blogName, interestFilter, since, refresh, refreshSummary, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
 			if err != nil {
 				if jsonOut {
 					return emitJSONError(err)
@@ -983,6 +1045,7 @@ list to combine filters.`,
 	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
+	cmd.Flags().StringVar(&sinceFlag, "since", "", "Classify posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
 	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,28 @@ type InvalidInterestFilterError struct {
 
 func (e InvalidInterestFilterError) Error() string {
 	return fmt.Sprintf("invalid --filter value %q: must be all, hide, normal/norm, or prefer/pref", e.Value)
+}
+
+func ParseSince(value string, now time.Time) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+
+	if days, err := strconv.Atoi(value); err == nil {
+		if days < 0 {
+			return nil, fmt.Errorf("invalid --since value %q: days must be 0 or greater", value)
+		}
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		cutoff := today.AddDate(0, 0, -days)
+		return &cutoff, nil
+	}
+
+	cutoff, err := time.ParseInLocation("2006-01-02", value, now.Location())
+	if err != nil {
+		return nil, fmt.Errorf("invalid --since value %q: use YYYY-MM-DD or a non-negative number of days", value)
+	}
+	return &cutoff, nil
 }
 
 type InterestFilter struct {
@@ -223,10 +246,14 @@ func GetArticles(db *storage.Database, showAll bool, blogName string, interestFi
 	if err != nil {
 		return nil, nil, err
 	}
-	return GetArticlesByFilter(db, showAll, blogName, filter)
+	return GetArticlesByFilterSince(db, showAll, blogName, filter, nil)
 }
 
 func GetArticlesByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter) ([]model.Article, map[int64]string, error) {
+	return GetArticlesByFilterSince(db, showAll, blogName, filter, nil)
+}
+
+func GetArticlesByFilterSince(db *storage.Database, showAll bool, blogName string, filter InterestFilter, since *time.Time) ([]model.Article, map[int64]string, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -245,6 +272,7 @@ func GetArticlesByFilter(db *storage.Database, showAll bool, blogName string, fi
 	}
 
 	articles = filterByInterest(articles, filter)
+	articles = filterBySince(articles, since)
 
 	blogNames, err := buildBlogNames(db)
 	if err != nil {
@@ -294,6 +322,23 @@ func filterByInterest(articles []model.Article, filter InterestFilter) []model.A
 	filtered := articles[:0:0]
 	for _, a := range articles {
 		if filter.Match(a) {
+			filtered = append(filtered, a)
+		}
+	}
+	return filtered
+}
+
+func filterBySince(articles []model.Article, since *time.Time) []model.Article {
+	if since == nil {
+		return articles
+	}
+	filtered := articles[:0:0]
+	for _, a := range articles {
+		date := articleSortDate(a)
+		if date.IsZero() {
+			continue
+		}
+		if !date.Before(*since) {
 			filtered = append(filtered, a)
 		}
 	}
@@ -486,7 +531,7 @@ func SummarizeArticles(db *storage.Database, showAll bool, blogName string, forc
 }
 
 func SummarizeArticlesByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
-	return SummarizeArticlesDebugByFilter(db, showAll, blogName, filter, forceExtractive, refresh, limit, workers, opts, nil, hnOpts)
+	return SummarizeArticlesDebugByFilterSince(db, showAll, blogName, filter, nil, forceExtractive, refresh, limit, workers, opts, nil, hnOpts)
 }
 
 func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
@@ -494,6 +539,10 @@ func SummarizeArticlesDebug(db *storage.Database, showAll bool, blogName string,
 }
 
 func SummarizeArticlesDebugByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
+	return SummarizeArticlesDebugByFilterSince(db, showAll, blogName, filter, nil, forceExtractive, refresh, limit, workers, opts, dbg, hnOpts)
+}
+
+func SummarizeArticlesDebugByFilterSince(db *storage.Database, showAll bool, blogName string, filter InterestFilter, since *time.Time, forceExtractive bool, refresh bool, limit int, workers int, opts summarizer.Options, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]SummaryResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -511,6 +560,7 @@ func SummarizeArticlesDebugByFilter(db *storage.Database, showAll bool, blogName
 		return nil, err
 	}
 	articles = filterByInterest(articles, filter)
+	articles = filterBySince(articles, since)
 
 	if limit > 0 {
 		articlesToSummarize := 0
@@ -669,7 +719,7 @@ func ClassifyArticlesInterest(db *storage.Database, showAll bool, blogName strin
 }
 
 func ClassifyArticlesInterestByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, hnOpts HackerNewsOptions) ([]InterestResult, error) {
-	return ClassifyArticlesInterestDebugByFilter(db, showAll, blogName, filter, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts)
+	return ClassifyArticlesInterestDebugByFilterSince(db, showAll, blogName, filter, nil, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, nil, hnOpts)
 }
 
 func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName string, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
@@ -677,6 +727,10 @@ func ClassifyArticlesInterestDebug(db *storage.Database, showAll bool, blogName 
 }
 
 func ClassifyArticlesInterestDebugByFilter(db *storage.Database, showAll bool, blogName string, filter InterestFilter, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
+	return ClassifyArticlesInterestDebugByFilterSince(db, showAll, blogName, filter, nil, refresh, summaryRefresh, forceExtractive, limit, workers, summaryOpts, interestCfg, dbg, hnOpts)
+}
+
+func ClassifyArticlesInterestDebugByFilterSince(db *storage.Database, showAll bool, blogName string, filter InterestFilter, since *time.Time, refresh bool, summaryRefresh bool, forceExtractive bool, limit int, workers int, summaryOpts summarizer.Options, interestCfg config.InterestConfig, dbg *debug.Logger, hnOpts HackerNewsOptions) ([]InterestResult, error) {
 	var blogID *int64
 	if blogName != "" {
 		blog, err := db.GetBlogByName(blogName)
@@ -694,6 +748,7 @@ func ClassifyArticlesInterestDebugByFilter(db *storage.Database, showAll bool, b
 		return nil, err
 	}
 	articles = filterByInterest(articles, filter)
+	articles = filterBySince(articles, since)
 
 	blogs, err := db.ListBlogs()
 	if err != nil {
