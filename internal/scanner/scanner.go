@@ -21,6 +21,11 @@ type ScanResult struct {
 	Error          string
 }
 
+var (
+	rssParseTimeout       = 15 * time.Second
+	rssParseRetryBackoffs = []time.Duration{500 * time.Millisecond, 1500 * time.Millisecond}
+)
+
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
 	return ScanBlogDebug(db, blog, false, "", nil)
 }
@@ -59,7 +64,7 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 	if feedURL != "" {
 		dbg.Log("%s  parsing RSS feed for %q", workerTag, blog.Name)
 		t := time.Now()
-		feedArticles, err := rss.ParseFeed(feedURL, 30*time.Second)
+		feedArticles, err := parseFeedWithRetries(feedURL, workerTag, dbg)
 		if err != nil {
 			errText = err.Error()
 			dbg.Log("%s  RSS parse failed: %v (%s)", workerTag, err, time.Since(t))
@@ -129,7 +134,9 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 		}
 	}
 
-	_ = db.UpdateBlogLastScanned(blog.ID, time.Now())
+	if errText == "" {
+		_ = db.UpdateBlogLastScanned(blog.ID, time.Now())
+	}
 
 	totalArticles, unreadArticles, err := db.CountArticles(blog.ID)
 	if err != nil {
@@ -146,6 +153,25 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 		Source:         source,
 		Error:          errText,
 	}
+}
+
+func parseFeedWithRetries(feedURL string, workerTag string, dbg *debug.Logger) ([]rss.FeedArticle, error) {
+	var lastErr error
+	attempts := len(rssParseRetryBackoffs) + 1
+	for attempt := 1; attempt <= attempts; attempt++ {
+		articles, err := rss.ParseFeed(feedURL, rssParseTimeout)
+		if err == nil {
+			return articles, nil
+		}
+		lastErr = err
+		if !rss.IsTimeoutError(err) || attempt == attempts {
+			return nil, err
+		}
+		backoff := rssParseRetryBackoffs[attempt-1]
+		dbg.Log("%s  RSS timeout on attempt %d/%d; retrying in %s", workerTag, attempt, attempts, backoff)
+		time.Sleep(backoff)
+	}
+	return nil, lastErr
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {

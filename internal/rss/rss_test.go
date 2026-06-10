@@ -3,6 +3,7 @@ package rss
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,5 +85,29 @@ func TestParseFeedExtractsDescription(t *testing.T) {
 	}
 	if articles[1].Description != "" {
 		t.Fatalf("expected empty description for second article, got %q", articles[1].Description)
+	}
+}
+
+func TestParseFeedReportsReadTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0"><channel>`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	_, err := ParseFeed(server.URL, 10*time.Millisecond)
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "feed read timeout after 10ms while parsing") {
+		t.Fatalf("expected read timeout wording, got %q", err.Error())
 	}
 }

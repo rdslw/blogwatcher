@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,6 +102,97 @@ func TestScanBlogScraperFallback(t *testing.T) {
 	}
 	if result.Error != "" {
 		t.Fatalf("expected no error, got %s", result.Error)
+	}
+}
+
+func TestScanBlogRetriesFeedTimeout(t *testing.T) {
+	restore := useFastRSSRetrySettings(t)
+	defer restore()
+
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := requests.Add(1)
+		if attempt <= 2 {
+			w.WriteHeader(http.StatusOK)
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0"><channel>`))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			time.Sleep(50 * time.Millisecond)
+			_, _ = w.Write([]byte(sampleFeed))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	result := ScanBlog(db, blog)
+	if result.Error != "" {
+		t.Fatalf("expected no error, got %s", result.Error)
+	}
+	if result.NewArticles != 2 {
+		t.Fatalf("expected 2 new articles, got %d", result.NewArticles)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("expected 3 feed requests, got %d", got)
+	}
+}
+
+func TestScanBlogDoesNotUpdateLastScannedOnError(t *testing.T) {
+	restore := useFastRSSRetrySettings(t)
+	defer restore()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0"><channel>`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	result := ScanBlog(db, blog)
+	if result.Error == "" {
+		t.Fatalf("expected scan error")
+	}
+	if result.NewArticles != 0 {
+		t.Fatalf("expected 0 new articles, got %d", result.NewArticles)
+	}
+
+	fetched, err := db.GetBlogByName("Test")
+	if err != nil {
+		t.Fatalf("get blog: %v", err)
+	}
+	if fetched == nil {
+		t.Fatalf("expected blog")
+	}
+	if fetched.LastScanned != nil {
+		t.Fatalf("expected last_scanned to remain nil, got %s", fetched.LastScanned.Format(time.RFC3339Nano))
 	}
 }
 
@@ -221,4 +313,16 @@ func TestScanBlogRSSStoresDescriptionAsSummary(t *testing.T) {
 
 func ptrTime(value time.Time) *time.Time {
 	return &value
+}
+
+func useFastRSSRetrySettings(t *testing.T) func() {
+	t.Helper()
+	oldTimeout := rssParseTimeout
+	oldBackoffs := rssParseRetryBackoffs
+	rssParseTimeout = 10 * time.Millisecond
+	rssParseRetryBackoffs = []time.Duration{time.Millisecond, time.Millisecond}
+	return func() {
+		rssParseTimeout = oldTimeout
+		rssParseRetryBackoffs = oldBackoffs
+	}
 }

@@ -1,8 +1,10 @@
 package rss
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,6 +33,9 @@ func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
 	client := &http.Client{Timeout: timeout}
 	response, err := client.Get(feedURL)
 	if err != nil {
+		if IsTimeoutError(err) {
+			return nil, FeedParseError{Message: fmt.Sprintf("feed fetch timeout after %s: %v", timeout, err)}
+		}
 		return nil, FeedParseError{Message: fmt.Sprintf("failed to fetch feed: %v", err)}
 	}
 	defer response.Body.Close()
@@ -41,6 +46,9 @@ func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
 	parser := gofeed.NewParser()
 	feed, err := parser.Parse(response.Body)
 	if err != nil {
+		if IsTimeoutError(err) {
+			return nil, FeedParseError{Message: fmt.Sprintf("feed read timeout after %s while parsing: %v", timeout, err)}
+		}
 		return nil, FeedParseError{Message: fmt.Sprintf("failed to parse feed: %v", err)}
 	}
 
@@ -179,4 +187,19 @@ func pickPublishedDate(item *gofeed.Item) *time.Time {
 func IsFeedError(err error) bool {
 	var parseErr FeedParseError
 	return errors.As(err, &parseErr)
+}
+
+func IsTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
 }
