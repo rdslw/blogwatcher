@@ -71,6 +71,9 @@ blogwatcher blogs
 # Include feed URL and scrape selector
 blogwatcher blogs -v
 
+# Show only blogs that currently have unread articles
+blogwatcher blogs --unread
+
 # Rename a blog without losing its articles or cached data
 blogwatcher rename "My Favorite Blog" "Favorite Blog"
 
@@ -86,6 +89,11 @@ sh blogs.sh
 ```
 
 `Entries` interest labels apply to unread articles: `a/b/c h/n/p`, `none h/n/p`, `no interest data`, or `partial interest data`.
+
+`blogs --unread` filters the blog list by whether each blog has unread articles.
+It is intentionally different from `--filter` on commands such as `articles`,
+`summary`, and `interest`, where the filter selects interest states (`hide`,
+`normal`, or `prefer`).
 
 ### Scanning for New Articles
 

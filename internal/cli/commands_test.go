@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/storage"
 )
 
@@ -41,6 +42,42 @@ func TestFormatInterestStats(t *testing.T) {
 				t.Fatalf("formatInterestStats() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadBlogOverviewsUnreadOnly(t *testing.T) {
+	db, err := storage.OpenDatabase(t.TempDir() + "/blogwatcher.db")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	unreadBlog, err := db.AddBlog(model.Blog{Name: "Unread", URL: "https://unread.example.com"})
+	if err != nil {
+		t.Fatalf("add unread blog: %v", err)
+	}
+	emptyBlog, err := db.AddBlog(model.Blog{Name: "Empty", URL: "https://empty.example.com"})
+	if err != nil {
+		t.Fatalf("add empty blog: %v", err)
+	}
+	if _, err := db.AddArticle(model.Article{BlogID: unreadBlog.ID, Title: "Unread", URL: "https://unread.example.com/1"}); err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	overviews, err := loadBlogOverviews(db, []model.Blog{emptyBlog, unreadBlog}, true)
+	if err != nil {
+		t.Fatalf("load blog overviews: %v", err)
+	}
+	if len(overviews) != 1 || overviews[0].blog.ID != unreadBlog.ID || overviews[0].stats.Unread != 1 {
+		t.Fatalf("unexpected unread blogs: %+v", overviews)
+	}
+
+	all, err := loadBlogOverviews(db, []model.Blog{emptyBlog, unreadBlog}, false)
+	if err != nil {
+		t.Fatalf("load all blog overviews: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected both blogs without --unread, got %+v", all)
 	}
 }
 

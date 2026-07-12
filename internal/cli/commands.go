@@ -113,6 +113,7 @@ func newRenameCommand() *cobra.Command {
 func newBlogsCommand() *cobra.Command {
 	var verbose bool
 	var jsonOut bool
+	var unreadOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "blogs",
@@ -122,6 +123,9 @@ func newBlogsCommand() *cobra.Command {
 Entries interest labels apply to unread articles: "a/b/c h/n/p" means
 hide/normal/prefer counts; "none h/n/p", "no interest data", and
 "partial interest data" describe zero, missing, or partial unread interest data.
+
+Use --unread to show only blogs with unread articles. Unlike --filter on
+article commands, --unread filters blogs by unread count, not interest state.
 
 Use --json for a machine-readable list (id, url, feed_url, scrape_selector,
 last_scanned, stats) for agentic use.`,
@@ -141,15 +145,18 @@ last_scanned, stats) for agentic use.`,
 				}
 				return err
 			}
+			overviews, err := loadBlogOverviews(db, blogs, unreadOnly)
+			if err != nil {
+				if jsonOut {
+					return emitJSONError(err)
+				}
+				return err
+			}
 
 			if jsonOut {
-				out := make([]jsonBlog, 0, len(blogs))
-				for _, b := range blogs {
-					stats, err := db.CountArticleStats(b.ID)
-					if err != nil {
-						return emitJSONError(err)
-					}
-					out = append(out, toJSONBlog(b, stats))
+				out := make([]jsonBlog, 0, len(overviews))
+				for _, overview := range overviews {
+					out = append(out, toJSONBlog(overview.blog, overview.stats))
 				}
 				return emitJSON(struct {
 					Blogs []jsonBlog `json:"blogs"`
@@ -160,12 +167,18 @@ last_scanned, stats) for agentic use.`,
 				fmt.Println("No blogs tracked yet. Use 'blogwatcher add' to add one.")
 				return nil
 			}
-			color.New(color.FgCyan, color.Bold).Printf("Tracked blogs (%d):\n\n", len(blogs))
-			for _, blog := range blogs {
-				stats, err := db.CountArticleStats(blog.ID)
-				if err != nil {
-					return err
-				}
+			if len(overviews) == 0 {
+				fmt.Println("No blogs have unread articles.")
+				return nil
+			}
+			heading := "Tracked blogs"
+			if unreadOnly {
+				heading = "Tracked blogs with unread articles"
+			}
+			color.New(color.FgCyan, color.Bold).Printf("%s (%d):\n\n", heading, len(overviews))
+			for _, overview := range overviews {
+				blog := overview.blog
+				stats := overview.stats
 				color.New(color.FgWhite, color.Bold).Printf("  %s\n", blog.Name)
 				fmt.Printf("    URL: %s\n", blog.URL)
 				if verbose && blog.FeedURL != "" {
@@ -184,8 +197,29 @@ last_scanned, stats) for agentic use.`,
 		},
 	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show feed URL and scrape selector")
+	cmd.Flags().BoolVarP(&unreadOnly, "unread", "u", false, "Show only blogs with unread articles")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
+}
+
+type blogOverview struct {
+	blog  model.Blog
+	stats storage.ArticleStats
+}
+
+func loadBlogOverviews(db *storage.Database, blogs []model.Blog, unreadOnly bool) ([]blogOverview, error) {
+	overviews := make([]blogOverview, 0, len(blogs))
+	for _, blog := range blogs {
+		stats, err := db.CountArticleStats(blog.ID)
+		if err != nil {
+			return nil, err
+		}
+		if unreadOnly && stats.Unread == 0 {
+			continue
+		}
+		overviews = append(overviews, blogOverview{blog: blog, stats: stats})
+	}
+	return overviews, nil
 }
 
 func formatUnreadCount(unread int) string {
