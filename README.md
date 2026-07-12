@@ -13,6 +13,7 @@ Short list of changes in this fork:
 - **Hacker News enrichment**: optionally finds matching HN submissions and caches points, comment count, and an LLM summary of the discussion.
 - **HN cost controls**: HN enrichment has its own cache, refresh flag, request-size limit, and `--hn-limit` guard for large runs.
 - **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
+- **Rename command**: adds `blogwatcher rename <old-name> <new-name>` while preserving the blog's articles and cached data.
 - **JSON output**: `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic consumers.
 - **Time-bounded queries**: `--since` on `articles`, `summary`, and `interest` to select posts by date or recent day count.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
@@ -69,6 +70,9 @@ blogwatcher blogs
 
 # Include feed URL and scrape selector
 blogwatcher blogs -v
+
+# Rename a blog without losing its articles or cached data
+blogwatcher rename "My Favorite Blog" "Favorite Blog"
 
 # Remove a blog (and all its articles)
 blogwatcher remove "My Favorite Blog"
@@ -286,6 +290,10 @@ Prefer compiler, databases, and distributed systems posts with benchmarks or imp
 Hide generic AI hot takes, launch posts, hiring announcements, and broad opinion pieces.
 """
 ```
+
+When renaming a blog, also rename its `[interest.blogs."..."]` table if one
+exists. The `rename` command preserves database records but does not edit
+`~/.blogwatcher/config.toml`.
 
 Interest classification always uses the cached article summary as input. If a summary
 is missing, BlogWatcher generates and stores one first.

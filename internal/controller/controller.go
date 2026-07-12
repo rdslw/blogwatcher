@@ -241,6 +241,30 @@ func RemoveBlog(db *storage.Database, name string) error {
 	return err
 }
 
+func RenameBlog(db *storage.Database, oldName string, newName string) error {
+	blog, err := db.GetBlogByName(oldName)
+	if err != nil {
+		return err
+	}
+	if blog == nil {
+		return BlogNotFoundError{Name: oldName}
+	}
+	if oldName == newName {
+		return nil
+	}
+
+	existing, err := db.GetBlogByName(newName)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return BlogAlreadyExistsError{Field: "name", Value: newName}
+	}
+
+	blog.Name = newName
+	return db.UpdateBlog(*blog)
+}
+
 func GetArticles(db *storage.Database, showAll bool, blogName string, interestFilter string) ([]model.Article, map[int64]string, error) {
 	filter, err := ParseInterestFilter([]string{interestFilter})
 	if err != nil {

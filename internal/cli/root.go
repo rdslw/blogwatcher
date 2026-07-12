@@ -19,6 +19,7 @@ func NewRootCommand() *cobra.Command {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.AddCommand(newAddCommand())
 	rootCmd.AddCommand(newRemoveCommand())
+	rootCmd.AddCommand(newRenameCommand())
 	rootCmd.AddCommand(newBlogsCommand())
 	rootCmd.AddCommand(newExportCommand())
 	rootCmd.AddCommand(newScanCommand())

@@ -38,6 +38,63 @@ func TestAddBlogAndRemoveBlog(t *testing.T) {
 	}
 }
 
+func TestRenameBlog(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Old", "https://example.com", "https://example.com/feed", "article")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	article, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"})
+	if err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	if err := RenameBlog(db, "Old", "New"); err != nil {
+		t.Fatalf("rename blog: %v", err)
+	}
+	if old, err := db.GetBlogByName("Old"); err != nil || old != nil {
+		t.Fatalf("old blog still exists: blog=%+v err=%v", old, err)
+	}
+	renamed, err := db.GetBlogByName("New")
+	if err != nil {
+		t.Fatalf("get renamed blog: %v", err)
+	}
+	if renamed == nil || renamed.ID != blog.ID || renamed.URL != blog.URL || renamed.FeedURL != blog.FeedURL || renamed.ScrapeSelector != blog.ScrapeSelector {
+		t.Fatalf("renamed blog fields changed: %+v", renamed)
+	}
+	articles, err := db.ListArticles(false, &blog.ID)
+	if err != nil {
+		t.Fatalf("list articles: %v", err)
+	}
+	if len(articles) != 1 || articles[0].ID != article.ID {
+		t.Fatalf("linked article not preserved: %+v", articles)
+	}
+}
+
+func TestRenameBlogErrors(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if _, err := AddBlog(db, "First", "https://first.example.com", "", ""); err != nil {
+		t.Fatalf("add first blog: %v", err)
+	}
+	if _, err := AddBlog(db, "Second", "https://second.example.com", "", ""); err != nil {
+		t.Fatalf("add second blog: %v", err)
+	}
+
+	if err := RenameBlog(db, "Missing", "New"); err == nil {
+		t.Fatal("expected missing blog error")
+	}
+	if err := RenameBlog(db, "First", "Second"); err == nil {
+		t.Fatal("expected duplicate name error")
+	}
+	if err := RenameBlog(db, "First", "First"); err != nil {
+		t.Fatalf("same-name rename should be a no-op: %v", err)
+	}
+}
+
 func TestArticleReadUnread(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

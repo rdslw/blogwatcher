@@ -86,6 +86,30 @@ func newRemoveCommand() *cobra.Command {
 	return cmd
 }
 
+func newRenameCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <old-name> <new-name>",
+		Short: "Rename a tracked blog.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			oldName := args[0]
+			newName := args[1]
+			db, err := storage.OpenDatabase("")
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			if err := controller.RenameBlog(db, oldName, newName); err != nil {
+				printError(err)
+				return markError(err)
+			}
+			color.New(color.FgGreen).Printf("Renamed blog '%s' to '%s'\n", oldName, newName)
+			return nil
+		},
+	}
+}
+
 func newBlogsCommand() *cobra.Command {
 	var verbose bool
 	var jsonOut bool
