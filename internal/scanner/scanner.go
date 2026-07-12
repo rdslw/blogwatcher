@@ -50,7 +50,11 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 		} else {
 			dbg.Log("%s  discovering feed for %q", workerTag, blog.Name)
 			t := time.Now()
-			if discovered, err := rss.DiscoverFeedURL(blog.URL, 15*time.Second); err == nil && discovered != "" {
+			discovered, err := rss.DiscoverFeedURL(blog.URL, 15*time.Second)
+			if err != nil {
+				errText = fmt.Sprintf("feed discovery failed: %v", err)
+				dbg.Log("%s  feed discovery failed: %v (%s)", workerTag, err, time.Since(t))
+			} else if discovered != "" {
 				feedURL = discovered
 				blog.FeedURL = discovered
 				_ = db.UpdateBlog(blog)

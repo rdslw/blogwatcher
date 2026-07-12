@@ -47,7 +47,7 @@ func newAddCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&feedURL, "feed-url", "", "RSS/Atom feed URL (auto-discovered if not provided)")
+	cmd.Flags().StringVar(&feedURL, "feed-url", "", "RSS/Atom feed URL (otherwise discovered during scan)")
 	cmd.Flags().StringVar(&scrapeSelector, "scrape-selector", "", "CSS selector for HTML scraping fallback")
 	return cmd
 }
@@ -1240,7 +1240,7 @@ func printScanResult(result scanner.ScanResult) {
 		return
 	}
 	if result.Source == "none" {
-		color.New(color.FgYellow).Println("    No feed or scraper configured")
+		color.New(color.FgYellow).Println("    No RSS/Atom feed found; configure a scrape selector")
 		return
 	}
 	sourceLabel := "HTML"

@@ -74,21 +74,21 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 	client := &http.Client{Timeout: timeout}
 	response, err := client.Get(blogURL)
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("failed to fetch blog page: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", nil
+		return "", fmt.Errorf("failed to fetch blog page: status %d", response.StatusCode)
 	}
 
 	base, err := url.Parse(blogURL)
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("invalid blog URL: %w", err)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(response.Body)
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("failed to parse blog page: %w", err)
 	}
 
 	feedTypes := []string{
