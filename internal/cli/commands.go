@@ -44,6 +44,11 @@ func newAddCommand() *cobra.Command {
 				return markError(err)
 			}
 			color.New(color.FgGreen).Printf("Added blog '%s'\n", name)
+			if cfg, cfgErr := config.Load(); cfgErr == nil {
+				if hint := interestPromptHint(cfg.Interest, name); hint != "" {
+					color.New(color.FgYellow).Fprintln(os.Stderr, hint)
+				}
+			}
 			return nil
 		},
 	}
@@ -1345,6 +1350,19 @@ func displayArticleURL(rawURL string) string {
 
 func printError(err error) {
 	color.New(color.FgRed).Printf("Error: %s\n", err.Error())
+}
+
+// interestPromptHint reports how interest classification will treat a newly
+// added blog when config.toml has no tailored prompt for it. It returns an
+// empty string when the blog has its own non-empty interest_prompt.
+func interestPromptHint(cfg config.InterestConfig, name string) string {
+	if blogRule, ok := cfg.Blogs[name]; ok && strings.TrimSpace(blogRule.InterestPrompt) != "" {
+		return ""
+	}
+	if strings.TrimSpace(cfg.InterestPrompt) != "" {
+		return fmt.Sprintf("Note: no [interest.blogs.%q] entry in config.toml; the global interest prompt will be used. Add one to tailor classification.", name)
+	}
+	return fmt.Sprintf("Warning: no interest prompt covers '%s'; its articles will stay unclassified.\nAdd to ~/.blogwatcher/config.toml:\n\n  [interest.blogs.%q]\n  interest_prompt = \"...\"", name, name)
 }
 
 func parseID(value string) (int64, error) {

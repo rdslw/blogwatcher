@@ -4,9 +4,72 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rdslw/blogwatcher/internal/config"
 	"github.com/rdslw/blogwatcher/internal/model"
 	"github.com/rdslw/blogwatcher/internal/storage"
 )
+
+func TestInterestPromptHint(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.InterestConfig
+		blog string
+		want string
+	}{
+		{
+			name: "tailored prompt gives no hint",
+			cfg: config.InterestConfig{
+				Blogs: map[string]config.InterestBlogConfig{
+					"foo": {InterestPrompt: "Prefer everything"},
+				},
+			},
+			blog: "foo",
+			want: "",
+		},
+		{
+			name: "global fallback gives soft note",
+			cfg:  config.InterestConfig{InterestPrompt: "Default policy"},
+			blog: "foo",
+			want: "Note:",
+		},
+		{
+			name: "empty per-blog entry with global gives soft note",
+			cfg: config.InterestConfig{
+				InterestPrompt: "Default policy",
+				Blogs:          map[string]config.InterestBlogConfig{"foo": {}},
+			},
+			blog: "foo",
+			want: "Note:",
+		},
+		{
+			name: "no coverage warns about unclassified articles",
+			cfg:  config.InterestConfig{},
+			blog: "foo",
+			want: "Warning:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := interestPromptHint(tt.cfg, tt.blog)
+			if tt.want == "" {
+				if got != "" {
+					t.Fatalf("expected no hint, got %q", got)
+				}
+				return
+			}
+			if !strings.HasPrefix(got, tt.want) {
+				t.Fatalf("expected hint starting with %q, got %q", tt.want, got)
+			}
+			if !strings.Contains(got, `"foo"`) {
+				t.Fatalf("expected hint to mention the blog name, got %q", got)
+			}
+			if tt.want == "Warning:" && !strings.Contains(got, "interest_prompt") {
+				t.Fatalf("expected warning to include a config snippet, got %q", got)
+			}
+		})
+	}
+}
 
 func TestFormatInterestStats(t *testing.T) {
 	tests := []struct {
