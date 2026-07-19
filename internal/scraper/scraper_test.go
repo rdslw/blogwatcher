@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 func TestScrapeBlog(t *testing.T) {
@@ -27,6 +28,9 @@ func TestScrapeBlog(t *testing.T) {
 </html>`
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != sitehttp.UserAgent() {
+			t.Fatalf("expected user agent %q, got %q", sitehttp.UserAgent(), got)
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(html))
 	}))

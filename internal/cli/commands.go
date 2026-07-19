@@ -292,13 +292,25 @@ falls back to HTML scraping via the configured CSS selector.
 
 For blogs that have a scrape selector but no feed URL, feed auto-discovery
 is skipped by default to avoid slow probes against sites without RSS.
-Use --feed-discovery to force feed discovery even when a selector is set.`,
+Use --feed-discovery to force feed discovery even when a selector is set.
+
+Set the optional top-level user_agent in ~/.blogwatcher/config.toml to override
+the versioned Blogwatcher User-Agent for blog and article requests.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
 			if debugFlag {
 				dbg = debug.New()
 				dbg.Log("scan command started")
+			}
+
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("config: %v", err)
+			}
+			scanOpts := scanner.Options{
+				FeedDiscovery: feedDiscovery,
+				UserAgent:     cfg.UserAgent,
 			}
 
 			db, err := storage.OpenDatabase("")
@@ -308,7 +320,7 @@ Use --feed-discovery to force feed discovery even when a selector is set.`,
 			defer db.Close()
 
 			if len(args) == 1 {
-				result, err := scanner.ScanBlogByNameDebug(db, args[0], feedDiscovery, dbg)
+				result, err := scanner.ScanBlogByNameDebug(db, args[0], scanOpts, dbg)
 				if err != nil {
 					return err
 				}
@@ -332,7 +344,7 @@ Use --feed-discovery to force feed discovery even when a selector is set.`,
 				if !silent {
 					color.New(color.FgCyan).Printf("Scanning %d blog(s)...\n\n", len(blogs))
 				}
-				results, err := scanner.ScanAllBlogsDebug(db, workers, feedDiscovery, dbg)
+				results, err := scanner.ScanAllBlogsDebug(db, workers, scanOpts, dbg)
 				if err != nil {
 					return err
 				}
@@ -706,6 +718,9 @@ fails (e.g. HTTP 403), the existing RSS summary is always preserved.
 
 Configuration via ~/.blogwatcher/config.toml:
 
+  user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+                                      # Optional; defaults to Blogwatcher's versioned UA
+
   [summary]
   model = "gpt-5.4-nano"           # OpenAI model to use
   system_prompt = "..."            # Custom system prompt
@@ -784,7 +799,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 				printError(werr)
 				return markError(err)
 			}
-			opts := summarizer.OptionsFromConfig(cfg.Summary)
+			opts := summarizer.OptionsFromConfig(cfg)
 			if modelFlag != "" {
 				opts.Model = modelFlag
 			}
@@ -1002,7 +1017,7 @@ the cutoff date. The filter uses published date, falling back to discovered date
 				return markError(err)
 			}
 
-			summaryOpts := summarizer.OptionsFromConfig(cfg.Summary)
+			summaryOpts := summarizer.OptionsFromConfig(cfg)
 			interestCfg := cfg.Interest
 			if modelFlag != "" {
 				interestCfg.Model = modelFlag

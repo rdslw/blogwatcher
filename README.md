@@ -16,6 +16,7 @@ Short list of changes in this fork:
 - **Rename command**: adds `blogwatcher rename <old-name> <new-name>` while preserving the blog's articles and cached data.
 - **JSON output**: `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic consumers.
 - **Time-bounded queries**: `--since` on `articles`, `summary`, and `interest` to select posts by date or recent day count.
+- **Configurable User-Agent**: uses a versioned BlogWatcher identity by default, with a global `config.toml` override for feed, blog, and article requests.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
 
 ## Features (original, pre-fork)
@@ -241,6 +242,9 @@ blogwatcher interest --sort oldest
 Create `~/.blogwatcher/config.toml`:
 
 ```toml
+# Optional. When omitted, BlogWatcher sends its versioned application User-Agent.
+user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+
 [summary]
 model = "gpt-5.4-nano"
 openai_api_key = "sk-..."
@@ -257,6 +261,10 @@ Use the same language as the blog article.
 """
 # Optional: hackernews_prompt can override the built-in Path ID discussion prompt.
 ```
+
+The top-level `user_agent` applies to feed discovery, RSS/Atom fetching, HTML
+scraping, and article-page fetching for summaries. If it is omitted or empty,
+BlogWatcher uses `blogwatcher/<version> (+https://github.com/rdslw/blogwatcher)`.
 
 HN enrichment stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and
 `hn_fetched` in the article cache. `--hn` reuses cached HN summaries and generates

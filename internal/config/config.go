@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 const (
@@ -63,12 +64,14 @@ func (cfg InterestConfig) PromptForBlog(blogName string) string {
 }
 
 type Config struct {
-	Summary  SummaryConfig  `toml:"summary"`
-	Interest InterestConfig `toml:"interest"`
+	UserAgent string         `toml:"user_agent"`
+	Summary   SummaryConfig  `toml:"summary"`
+	Interest  InterestConfig `toml:"interest"`
 }
 
 func DefaultConfig() Config {
 	return Config{
+		UserAgent: sitehttp.UserAgent(),
 		Summary: SummaryConfig{
 			Model:                     DefaultModel,
 			SystemPrompt:              DefaultSystemPrompt,
@@ -113,6 +116,7 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 
+	cfg.UserAgent = sitehttp.ResolveUserAgent(cfg.UserAgent)
 	if cfg.Summary.Model == "" {
 		cfg.Summary.Model = DefaultModel
 	}

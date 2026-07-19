@@ -21,16 +21,21 @@ type ScanResult struct {
 	Error          string
 }
 
+type Options struct {
+	FeedDiscovery bool
+	UserAgent     string
+}
+
 var (
 	rssParseTimeout       = 15 * time.Second
 	rssParseRetryBackoffs = []time.Duration{500 * time.Millisecond, 1500 * time.Millisecond}
 )
 
 func ScanBlog(db *storage.Database, blog model.Blog) ScanResult {
-	return ScanBlogDebug(db, blog, false, "", nil)
+	return ScanBlogDebug(db, blog, Options{}, "", nil)
 }
 
-func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, workerTag string, dbg *debug.Logger) ScanResult {
+func ScanBlogDebug(db *storage.Database, blog model.Blog, opts Options, workerTag string, dbg *debug.Logger) ScanResult {
 	blogStart := time.Now()
 	dbg.Log("%sscan start blog=%q url=%s", workerTag, blog.Name, blog.URL)
 
@@ -45,12 +50,12 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 		// Skip feed discovery for blogs that already have a scrape selector,
 		// unless --feed-discovery is explicitly requested. Probing common feed
 		// paths on sites without RSS can waste tens of seconds per blog.
-		if blog.ScrapeSelector != "" && !feedDiscovery {
+		if blog.ScrapeSelector != "" && !opts.FeedDiscovery {
 			dbg.Log("%s  skipping feed discovery (scrape selector set)", workerTag)
 		} else {
 			dbg.Log("%s  discovering feed for %q", workerTag, blog.Name)
 			t := time.Now()
-			discovered, err := rss.DiscoverFeedURL(blog.URL, 15*time.Second)
+			discovered, err := rss.DiscoverFeedURLWithUserAgent(blog.URL, 15*time.Second, opts.UserAgent)
 			if err != nil {
 				errText = fmt.Sprintf("feed discovery failed: %v", err)
 				dbg.Log("%s  feed discovery failed: %v (%s)", workerTag, err, time.Since(t))
@@ -68,7 +73,7 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 	if feedURL != "" {
 		dbg.Log("%s  parsing RSS feed for %q", workerTag, blog.Name)
 		t := time.Now()
-		feedArticles, err := parseFeedWithRetries(feedURL, workerTag, dbg)
+		feedArticles, err := parseFeedWithRetries(feedURL, opts.UserAgent, workerTag, dbg)
 		if err != nil {
 			errText = err.Error()
 			dbg.Log("%s  RSS parse failed: %v (%s)", workerTag, err, time.Since(t))
@@ -82,7 +87,7 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 	if len(articles) == 0 && blog.ScrapeSelector != "" {
 		dbg.Log("%s  scraping HTML for %q selector=%q", workerTag, blog.Name, blog.ScrapeSelector)
 		t := time.Now()
-		scrapedArticles, err := scraper.ScrapeBlog(blog.URL, blog.ScrapeSelector, 30*time.Second)
+		scrapedArticles, err := scraper.ScrapeBlogWithUserAgent(blog.URL, blog.ScrapeSelector, 30*time.Second, opts.UserAgent)
 		if err != nil {
 			if errText != "" {
 				errText = fmt.Sprintf("RSS: %s; Scraper: %s", errText, err.Error())
@@ -159,11 +164,11 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, feedDiscovery bool, wo
 	}
 }
 
-func parseFeedWithRetries(feedURL string, workerTag string, dbg *debug.Logger) ([]rss.FeedArticle, error) {
+func parseFeedWithRetries(feedURL string, userAgent string, workerTag string, dbg *debug.Logger) ([]rss.FeedArticle, error) {
 	var lastErr error
 	attempts := len(rssParseRetryBackoffs) + 1
 	for attempt := 1; attempt <= attempts; attempt++ {
-		articles, err := rss.ParseFeed(feedURL, rssParseTimeout)
+		articles, err := rss.ParseFeedWithUserAgent(feedURL, rssParseTimeout, userAgent)
 		if err == nil {
 			return articles, nil
 		}
@@ -179,10 +184,10 @@ func parseFeedWithRetries(feedURL string, workerTag string, dbg *debug.Logger) (
 }
 
 func ScanAllBlogs(db *storage.Database, workers int) ([]ScanResult, error) {
-	return ScanAllBlogsDebug(db, workers, false, nil)
+	return ScanAllBlogsDebug(db, workers, Options{}, nil)
 }
 
-func ScanAllBlogsDebug(db *storage.Database, workers int, feedDiscovery bool, dbg *debug.Logger) ([]ScanResult, error) {
+func ScanAllBlogsDebug(db *storage.Database, workers int, opts Options, dbg *debug.Logger) ([]ScanResult, error) {
 	blogs, err := db.ListBlogs()
 	if err != nil {
 		return nil, err
@@ -191,7 +196,7 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, feedDiscovery bool, db
 	if workers <= 1 {
 		results := make([]ScanResult, 0, len(blogs))
 		for _, blog := range blogs {
-			results = append(results, ScanBlogDebug(db, blog, feedDiscovery, "", dbg))
+			results = append(results, ScanBlogDebug(db, blog, opts, "", dbg))
 		}
 		return results, nil
 	}
@@ -215,7 +220,7 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, feedDiscovery bool, db
 			}
 			defer workerDB.Close()
 			for item := range jobs {
-				results[item.Index] = ScanBlogDebug(workerDB, item.Blog, feedDiscovery, tag, dbg)
+				results[item.Index] = ScanBlogDebug(workerDB, item.Blog, opts, tag, dbg)
 			}
 			errs <- nil
 		}()
@@ -236,10 +241,10 @@ func ScanAllBlogsDebug(db *storage.Database, workers int, feedDiscovery bool, db
 }
 
 func ScanBlogByName(db *storage.Database, name string) (*ScanResult, error) {
-	return ScanBlogByNameDebug(db, name, false, nil)
+	return ScanBlogByNameDebug(db, name, Options{}, nil)
 }
 
-func ScanBlogByNameDebug(db *storage.Database, name string, feedDiscovery bool, dbg *debug.Logger) (*ScanResult, error) {
+func ScanBlogByNameDebug(db *storage.Database, name string, opts Options, dbg *debug.Logger) (*ScanResult, error) {
 	blog, err := db.GetBlogByName(name)
 	if err != nil {
 		return nil, err
@@ -247,7 +252,7 @@ func ScanBlogByNameDebug(db *storage.Database, name string, feedDiscovery bool, 
 	if blog == nil {
 		return nil, nil
 	}
-	result := ScanBlogDebug(db, *blog, feedDiscovery, "", dbg)
+	result := ScanBlogDebug(db, *blog, opts, "", dbg)
 	return &result, nil
 }
 

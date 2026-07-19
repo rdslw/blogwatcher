@@ -9,12 +9,25 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestOptionsFromConfigIncludesUserAgent(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UserAgent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+
+	opts := OptionsFromConfig(cfg)
+	if opts.UserAgent != cfg.UserAgent {
+		t.Fatalf("expected user agent %q, got %q", cfg.UserAgent, opts.UserAgent)
+	}
 }
 
 func TestSummarizeWithLLMRespectsMaxRequestBytes(t *testing.T) {
@@ -232,10 +245,10 @@ func TestFetchArticleTextPrefersMainContentOverPageChrome(t *testing.T) {
 	}
 }
 
-func TestFetchArticleTextUsesBrowserLikeHeaders(t *testing.T) {
+func TestFetchArticleTextUsesSiteHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("User-Agent"); got != articleFetchUA {
-			t.Fatalf("expected user agent %q, got %q", articleFetchUA, got)
+		if got := r.Header.Get("User-Agent"); got != sitehttp.UserAgent() {
+			t.Fatalf("expected user agent %q, got %q", sitehttp.UserAgent(), got)
 		}
 		if got := r.Header.Get("Accept"); got != articleFetchAccept {
 			t.Fatalf("expected accept header %q, got %q", articleFetchAccept, got)
@@ -250,6 +263,25 @@ func TestFetchArticleTextUsesBrowserLikeHeaders(t *testing.T) {
 	defer server.Close()
 
 	text, err := fetchArticleText(server.URL)
+	if err != nil {
+		t.Fatalf("fetch article text: %v", err)
+	}
+	if !strings.Contains(text, "Allowed content.") {
+		t.Fatalf("expected article body, got %q", text)
+	}
+}
+
+func TestFetchArticleTextUsesConfiguredUserAgent(t *testing.T) {
+	const userAgent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != userAgent {
+			t.Fatalf("expected user agent %q, got %q", userAgent, got)
+		}
+		_, _ = io.WriteString(w, "<html><body><article>Allowed content.</article></body></html>")
+	}))
+	defer server.Close()
+
+	text, err := fetchArticleTextWithUserAgent(server.URL, userAgent)
 	if err != nil {
 		t.Fatalf("fetch article text: %v", err)
 	}

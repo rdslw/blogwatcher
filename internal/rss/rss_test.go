@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 const sampleFeed = `<?xml version="1.0" encoding="UTF-8" ?>
@@ -27,6 +29,9 @@ const sampleFeed = `<?xml version="1.0" encoding="UTF-8" ?>
 
 func TestParseFeed(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != sitehttp.UserAgent() {
+			t.Fatalf("expected user agent %q, got %q", sitehttp.UserAgent(), got)
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(sampleFeed))
 	}))
@@ -47,6 +52,9 @@ func TestParseFeed(t *testing.T) {
 func TestDiscoverFeedURL(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != sitehttp.UserAgent() {
+			t.Fatalf("expected user agent %q, got %q", sitehttp.UserAgent(), got)
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`<html><head><link rel="alternate" type="application/rss+xml" href="/feed.xml" /></head></html>`))
 	})
@@ -63,6 +71,25 @@ func TestDiscoverFeedURL(t *testing.T) {
 	}
 	if feedURL == "" {
 		t.Fatalf("expected feed url")
+	}
+}
+
+func TestIsValidFeedUsesBlogwatcherUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != sitehttp.UserAgent() {
+			t.Fatalf("expected user agent %q, got %q", sitehttp.UserAgent(), got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	ok, err := isValidFeed(server.URL, 2*time.Second)
+	if err != nil {
+		t.Fatalf("validate feed: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected valid feed")
 	}
 }
 

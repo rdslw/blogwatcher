@@ -1,9 +1,18 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
+)
 
 func TestDefaultConfigLeavesInterestPromptEmpty(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.UserAgent != sitehttp.UserAgent() {
+		t.Fatalf("expected default user agent %q, got %q", sitehttp.UserAgent(), cfg.UserAgent)
+	}
 	if cfg.Interest.InterestPrompt != "" {
 		t.Fatalf("expected default interest prompt to be empty, got %q", cfg.Interest.InterestPrompt)
 	}
@@ -18,6 +27,26 @@ func TestDefaultConfigLeavesInterestPromptEmpty(t *testing.T) {
 	}
 	if cfg.Interest.MaxRequestBytes != DefaultInterestMaxRequestBytes {
 		t.Fatalf("expected default interest max request bytes %d, got %d", DefaultInterestMaxRequestBytes, cfg.Interest.MaxRequestBytes)
+	}
+}
+
+func TestLoadUsesConfiguredUserAgent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configDir := filepath.Join(home, ".blogwatcher")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("create config directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("user_agent = \"blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)\"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UserAgent != "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)" {
+		t.Fatalf("expected configured user agent, got %q", cfg.UserAgent)
 	}
 }
 

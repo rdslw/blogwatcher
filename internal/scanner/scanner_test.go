@@ -66,6 +66,33 @@ func TestScanBlogRSS(t *testing.T) {
 	}
 }
 
+func TestScanBlogUsesConfiguredUserAgent(t *testing.T) {
+	const userAgent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != userAgent {
+			t.Fatalf("expected user agent %q, got %q", userAgent, got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+
+	result := ScanBlogDebug(db, blog, Options{UserAgent: userAgent}, "", nil)
+	if result.Error != "" {
+		t.Fatalf("scan blog: %s", result.Error)
+	}
+	if result.NewArticles != 2 {
+		t.Fatalf("expected 2 new articles, got %d", result.NewArticles)
+	}
+}
+
 func TestScanBlogScraperFallback(t *testing.T) {
 	html := `<!DOCTYPE html>
 <html>

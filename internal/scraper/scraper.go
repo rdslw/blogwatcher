@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 var nowFn = time.Now
@@ -29,8 +30,12 @@ func (e ScrapeError) Error() string {
 }
 
 func ScrapeBlog(blogURL string, selector string, timeout time.Duration) ([]ScrapedArticle, error) {
+	return ScrapeBlogWithUserAgent(blogURL, selector, timeout, "")
+}
+
+func ScrapeBlogWithUserAgent(blogURL string, selector string, timeout time.Duration, userAgent string) ([]ScrapedArticle, error) {
 	client := &http.Client{Timeout: timeout}
-	response, err := client.Get(blogURL)
+	response, err := sitehttp.Get(client, blogURL, userAgent)
 	if err != nil {
 		return nil, ScrapeError{Message: fmt.Sprintf("failed to fetch page: %v", err)}
 	}

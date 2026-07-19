@@ -12,6 +12,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/mmcdole/gofeed"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 type FeedArticle struct {
@@ -30,8 +31,12 @@ func (e FeedParseError) Error() string {
 }
 
 func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
+	return ParseFeedWithUserAgent(feedURL, timeout, "")
+}
+
+func ParseFeedWithUserAgent(feedURL string, timeout time.Duration, userAgent string) ([]FeedArticle, error) {
 	client := &http.Client{Timeout: timeout}
-	response, err := client.Get(feedURL)
+	response, err := sitehttp.Get(client, feedURL, userAgent)
 	if err != nil {
 		if IsTimeoutError(err) {
 			return nil, FeedParseError{Message: fmt.Sprintf("feed fetch timeout after %s: %v", timeout, err)}
@@ -71,8 +76,12 @@ func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
 }
 
 func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
+	return DiscoverFeedURLWithUserAgent(blogURL, timeout, "")
+}
+
+func DiscoverFeedURLWithUserAgent(blogURL string, timeout time.Duration, userAgent string) (string, error) {
 	client := &http.Client{Timeout: timeout}
-	response, err := client.Get(blogURL)
+	response, err := sitehttp.Get(client, blogURL, userAgent)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch blog page: %w", err)
 	}
@@ -130,7 +139,7 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 		if resolved == "" {
 			continue
 		}
-		ok, err := isValidFeed(resolved, timeout)
+		ok, err := isValidFeedWithUserAgent(resolved, timeout, userAgent)
 		if err == nil && ok {
 			return resolved, nil
 		}
@@ -140,8 +149,12 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 }
 
 func isValidFeed(feedURL string, timeout time.Duration) (bool, error) {
+	return isValidFeedWithUserAgent(feedURL, timeout, "")
+}
+
+func isValidFeedWithUserAgent(feedURL string, timeout time.Duration, userAgent string) (bool, error) {
 	client := &http.Client{Timeout: timeout}
-	response, err := client.Get(feedURL)
+	response, err := sitehttp.Get(client, feedURL, userAgent)
 	if err != nil {
 		return false, err
 	}

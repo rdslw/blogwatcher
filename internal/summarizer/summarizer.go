@@ -15,6 +15,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/rdslw/blogwatcher/internal/config"
+	"github.com/rdslw/blogwatcher/internal/sitehttp"
 )
 
 const (
@@ -22,7 +23,6 @@ const (
 	maxLocalChars      = 2000
 	verbatimWordLimit  = 250
 	openAIAPIURL       = "https://api.openai.com/v1/chat/completions"
-	articleFetchUA     = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 	articleFetchAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 )
 
@@ -31,6 +31,7 @@ type Options struct {
 	Model                     string
 	SystemPrompt              string
 	MaxRequestBytes           int
+	UserAgent                 string
 	HackerNewsPrompt          string
 	HackerNewsMaxRequestBytes int
 }
@@ -48,14 +49,15 @@ const (
 	EngineRSS      = "rss"
 )
 
-func OptionsFromConfig(cfg config.SummaryConfig) Options {
+func OptionsFromConfig(cfg config.Config) Options {
 	return Options{
-		OpenAIAPIKey:              cfg.OpenAIAPIKey,
-		Model:                     cfg.Model,
-		SystemPrompt:              cfg.SystemPrompt,
-		MaxRequestBytes:           cfg.MaxRequestBytes,
-		HackerNewsPrompt:          cfg.HackerNewsPrompt,
-		HackerNewsMaxRequestBytes: cfg.HackerNewsMaxRequestBytes,
+		OpenAIAPIKey:              cfg.Summary.OpenAIAPIKey,
+		Model:                     cfg.Summary.Model,
+		SystemPrompt:              cfg.Summary.SystemPrompt,
+		MaxRequestBytes:           cfg.Summary.MaxRequestBytes,
+		UserAgent:                 cfg.UserAgent,
+		HackerNewsPrompt:          cfg.Summary.HackerNewsPrompt,
+		HackerNewsMaxRequestBytes: cfg.Summary.HackerNewsMaxRequestBytes,
 	}
 }
 
@@ -70,7 +72,7 @@ func resolveAPIKey(opts Options) string {
 }
 
 func SummarizeArticle(articleURL string, forceExtractive bool, opts Options) (Result, error) {
-	text, err := fetchArticleText(articleURL)
+	text, err := fetchArticleTextWithUserAgent(articleURL, opts.UserAgent)
 	if err != nil {
 		return Result{}, err
 	}
@@ -100,12 +102,16 @@ func SummarizeArticle(articleURL string, forceExtractive bool, opts Options) (Re
 }
 
 func fetchArticleText(articleURL string) (string, error) {
+	return fetchArticleTextWithUserAgent(articleURL, "")
+}
+
+func fetchArticleTextWithUserAgent(articleURL string, userAgent string) (string, error) {
 	client := &http.Client{Timeout: defaultTimeout}
 	req, err := http.NewRequest(http.MethodGet, articleURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create article request for %s: %v", articleURL, err)
 	}
-	req.Header.Set("User-Agent", articleFetchUA)
+	sitehttp.SetUserAgent(req, userAgent)
 	req.Header.Set("Accept", articleFetchAccept)
 
 	resp, err := client.Do(req)
