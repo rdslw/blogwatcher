@@ -24,6 +24,7 @@ Short list of changes in this fork:
 As of September 6, 2026, we use **selective upstream imports** to preserve the fork's behavior. `origin/main` is our development and release branch; `upstream/main` is a reference for review.
 
 - Import on `upstream/<topic>` branches from our `main`, using `git cherry-pick -x` or focused ports citing upstream PRs and hashes.
+- Include `(upstream)` in every import commit headline, regardless of import method; retain provenance markers and references in the body.
 - Record review outcomes, reasons, and the reviewed SHA. Cherry-picks do not establish shared ancestry, so divergence counts alone cannot track outstanding work.
 - Keep published history stable; avoid regular upstream merges, rebasing published `main`, and artificial ancestry merges.
 

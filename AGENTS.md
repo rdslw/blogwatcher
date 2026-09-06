@@ -16,5 +16,6 @@
 
 - Decision (2026-09-06): use selective imports. `origin/main` is authoritative; `upstream/main` is for review.
 - Work on `upstream/<topic>` branches from our `main`. Use `git cherry-pick -x` for compatible commits; cite upstream PRs and hashes for adapted ports.
+- Every upstream import commit headline must include `(upstream)`, whether cherry-picked, ported, or integrated through a branch. Retain provenance markers and references in the commit body.
 - Preserve fork behavior and published history. Avoid regular upstream merges, rebasing published `main`, and artificial ancestry merges.
 - Record review outcomes, reasons, and the reviewed SHA; cherry-picks do not establish shared ancestry. Revisit this policy only when explicitly requested.
