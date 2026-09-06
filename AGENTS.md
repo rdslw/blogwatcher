@@ -7,6 +7,7 @@
 - Never use `git restore` (or similar commands) to revert files you didn't author—coordinate with other agents instead so their in-progress work stays intact.
 - Always double-check git status before any commit
 - Release bump procedure: update `internal/version/version.go`, commit it as `ver: release vX.Y.Z`, then run `git tag vX.Y.Z` and `git push origin main vX.Y.Z`.
+- Pushing a `v*` tag automatically builds binaries and publishes a GitHub release. Keep published tags fixed; for an explicitly authorized rewrite affecting a released tag, follow [release recovery](README.md#release-automation-and-recovery).
 - Keep commits atomic: commit only the files you touched and list each path explicitly. For tracked files run `git commit -m "<scoped message>" -- path/to/file1 path/to/file2`. For brand-new files, use the one-liner `git restore --staged :/ && git add "path/to/file1" "path/to/file2" && git commit -m "<scoped message>" -- path/to/file1 path/to/file2`.
 - Quote any git paths containing brackets or parentheses (e.g., `src/app/[candidate]/**`) when staging or committing so the shell does not treat them as globs or subshells.
 - When running `git rebase`, avoid opening editors—export `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:` (or pass `--no-edit`) so the default messages are used automatically.

@@ -481,12 +481,19 @@ VERSION=v1.2.3 make build-macos
 ### Publishing
 
 To publish a release:
-```
+
+```bash
   # Update internal/version/version.go to the release version
   git commit -m "ver: release vX.Y.Z" -- internal/version/version.go
   git tag vX.Y.Z
   git push origin main vX.Y.Z
 ```
+
+### Release Automation and Recovery
+
+Pushing a `v*` tag with `git push origin main vX.Y.Z` triggers the [release workflow](.github/workflows/release.yml). GoReleaser automatically builds Linux AMD64 and macOS ARM64 binaries on GitHub's runners, creates the GitHub release, and uploads archives and checksums. No manual release creation is needed.
+
+Keep published tags fixed; normally, use a new version. If an unavoidable, explicitly authorized rewrite changes a released tag, save needed notes and delete the old release/assets with `gh release delete vX.Y.Z --repo rdslw/blogwatcher` (keeps the tag). Push the corrected tag, or rerun a workflow targeting that commit, to recreate the release. Verify downloaded binaries match the tag with `go version -m` and disclose the replacement in release notes. Deletion alone does not trigger a build; immutable releases require a new version.
 
 ## License
 
