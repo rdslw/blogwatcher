@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,6 +91,14 @@ func DiscoverFeedURLWithUserAgent(blogURL string, timeout time.Duration, userAge
 		return "", fmt.Errorf("failed to fetch blog page: status %d", response.StatusCode)
 	}
 
+	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err == nil {
+		// Generic XML may be a sitemap, so only recognize explicit feed types.
+		if mediaType == "application/rss+xml" || mediaType == "application/atom+xml" || mediaType == "application/feed+json" {
+			return blogURL, nil
+		}
+	}
+
 	base, err := url.Parse(blogURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid blog URL: %w", err)
@@ -109,7 +118,10 @@ func DiscoverFeedURLWithUserAgent(blogURL string, timeout time.Duration, userAge
 	}
 
 	for _, feedType := range feedTypes {
-		selection := doc.Find(fmt.Sprintf("link[rel='alternate'][type='%s']", feedType)).First()
+		selection := doc.Find(fmt.Sprintf("link[rel~='alternate'][type~='%s']", feedType)).First()
+		if selection.Length() == 0 {
+			selection = doc.Find(fmt.Sprintf("link[rel~='self'][type~='%s']", feedType)).First()
+		}
 		if selection.Length() == 0 {
 			continue
 		}

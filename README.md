@@ -417,9 +417,10 @@ blogwatcher read --filter pref
 
 ### Feed Auto-Discovery
 
-BlogWatcher searches for feeds in two ways:
+BlogWatcher discovers feeds by:
 
--   Looking for `<link rel="alternate">` tags with RSS/Atom types
+-   Recognizing direct RSS, Atom, or JSON Feed responses by Content-Type (including charset parameters)
+-   Looking for `<link>` tags with feed types and `alternate` or `self` in their `rel` tokens
 -   Checking common feed paths: `/feed`, `/rss`, `/feed.xml`, `/atom.xml`, etc.
 
 ### HTML Scraping

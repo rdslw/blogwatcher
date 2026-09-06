@@ -1,6 +1,7 @@
 package rss
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,6 +72,69 @@ func TestDiscoverFeedURL(t *testing.T) {
 	}
 	if feedURL == "" {
 		t.Fatalf("expected feed url")
+	}
+}
+
+func TestDiscoverFeedURLContentType(t *testing.T) {
+	for _, test := range []struct {
+		contentType string
+		wantFeed    bool
+	}{
+		{"application/rss+xml; charset=UTF-8", true},
+		{"Application/Atom+XML; charset=utf-8", true},
+		{"application/feed+json", true},
+		{"application/xml", false},
+		{"text/xml", false},
+		{"application/rss+xml; broken", false},
+	} {
+		t.Run(test.contentType, func(t *testing.T) {
+			const userAgent = "blogwatcher-discovery-test"
+			mux := http.NewServeMux()
+			mux.HandleFunc("/tag/AI/feed/", func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("User-Agent"); got != userAgent {
+					t.Errorf("expected user agent %q, got %q", userAgent, got)
+				}
+				w.Header().Set("Content-Type", test.contentType)
+				_, _ = w.Write([]byte(`<root/>`))
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			url := server.URL + "/tag/AI/feed/"
+			got, err := DiscoverFeedURLWithUserAgent(url, 2*time.Second, userAgent)
+			if err != nil {
+				t.Fatalf("discover feed: %v", err)
+			}
+			want := ""
+			if test.wantFeed {
+				want = url
+			}
+			if got != want {
+				t.Fatalf("expected feed URL %q, got %q", want, got)
+			}
+		})
+	}
+}
+
+func TestDiscoverFeedURLRelTokens(t *testing.T) {
+	for _, rel := range []string{"self", "self bookmark", "alternate bookmark"} {
+		t.Run(rel, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				_, _ = fmt.Fprintf(w, `<html><head><link rel="%s" type="application/rss+xml" href="/my-feed.xml" /></head></html>`, rel)
+			})
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			got, err := DiscoverFeedURL(server.URL, 2*time.Second)
+			if err != nil {
+				t.Fatalf("discover feed: %v", err)
+			}
+			if want := server.URL + "/my-feed.xml"; got != want {
+				t.Fatalf("expected feed URL %q, got %q", want, got)
+			}
+		})
 	}
 }
 
