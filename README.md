@@ -19,6 +19,16 @@ Short list of changes in this fork:
 - **Configurable User-Agent**: uses a versioned BlogWatcher identity by default, with a global `config.toml` override for feed, blog, and article requests.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
 
+### Upstream Integration Policy
+
+As of September 6, 2026, we use **selective upstream imports** to preserve the fork's behavior. `origin/main` is our development and release branch; `upstream/main` is a reference for review.
+
+- Import on `upstream/<topic>` branches from our `main`, using `git cherry-pick -x` or focused ports citing upstream PRs and hashes.
+- Record review outcomes, reasons, and the reviewed SHA. Cherry-picks do not establish shared ancestry, so divergence counts alone cannot track outstanding work.
+- Keep published history stable; avoid regular upstream merges, rebasing published `main`, and artificial ancestry merges.
+
+Revisit this policy explicitly if our needs change.
+
 ## Features (original, pre-fork)
 
 -   **Dual Source Support** - Tries RSS feeds first, falls back to HTML scraping

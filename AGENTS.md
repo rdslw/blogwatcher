@@ -11,3 +11,10 @@
 - Quote any git paths containing brackets or parentheses (e.g., `src/app/[candidate]/**`) when staging or committing so the shell does not treat them as globs or subshells.
 - When running `git rebase`, avoid opening editors—export `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:` (or pass `--no-edit`) so the default messages are used automatically.
 - Never amend commits unless you have explicit written approval in the task thread.
+
+## Upstream integration policy
+
+- Decision (2026-09-06): use selective imports. `origin/main` is authoritative; `upstream/main` is for review.
+- Work on `upstream/<topic>` branches from our `main`. Use `git cherry-pick -x` for compatible commits; cite upstream PRs and hashes for adapted ports.
+- Preserve fork behavior and published history. Avoid regular upstream merges, rebasing published `main`, and artificial ancestry merges.
+- Record review outcomes, reasons, and the reviewed SHA; cherry-picks do not establish shared ancestry. Revisit this policy only when explicitly requested.
