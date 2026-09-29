@@ -1213,7 +1213,7 @@ func printInterestResult(result controller.InterestResult, verbose bool, showSum
 // printResultHeader prints the "[id] blog [tags] date | title" line.
 func printResultHeader(article model.Article, blogName string, tags ...string) {
 	id := color.New(color.FgCyan).Sprintf("[%d]", article.ID)
-	fmt.Printf("  %s\n", formatResultHeader(id, blogName, tags, article.PublishedDate, article.Title))
+	fmt.Printf("  %s\n", formatResultHeader(id, blogName, tags, article.PublishedDate, article.DiscoveredDate, article.Title))
 }
 
 func printArticleURL(article model.Article) {

@@ -92,20 +92,23 @@ func TestFormatFieldCollapsesWhitespace(t *testing.T) {
 
 func TestFormatResultHeader(t *testing.T) {
 	published := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	discovered := time.Date(2026, 9, 29, 12, 0, 0, 0, time.Local)
 	tests := []struct {
-		name      string
-		blog      string
-		tags      []string
-		published *time.Time
-		want      string
+		name       string
+		blog       string
+		tags       []string
+		published  *time.Time
+		discovered *time.Time
+		want       string
 	}{
-		{name: "all parts", blog: "macrumors", tags: []string{"[new]", "[prefer]"}, published: &published, want: "[1] macrumors [new] [prefer] 2026-09-28 | Title"},
+		{name: "all parts", blog: "macrumors", tags: []string{"[new]", "[prefer]"}, published: &published, discovered: &discovered, want: "[1] macrumors [new] [prefer] 2026-09-28 | Title"},
 		{name: "empty tags skipped", blog: "macrumors", tags: []string{"", "[prefer]"}, published: &published, want: "[1] macrumors [prefer] 2026-09-28 | Title"},
+		{name: "discovered fallback", blog: "cerebras", tags: []string{"[new]"}, discovered: &discovered, want: "[1] cerebras [new] ~2026-09-29 | Title"},
 		{name: "no date", blog: "macrumors", want: "[1] macrumors | Title"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatResultHeader("[1]", tt.blog, tt.tags, tt.published, "Title"); got != tt.want {
+			if got := formatResultHeader("[1]", tt.blog, tt.tags, tt.published, tt.discovered, "Title"); got != tt.want {
 				t.Fatalf("formatResultHeader() = %q, want %q", got, tt.want)
 			}
 		})

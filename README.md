@@ -124,8 +124,10 @@ stays visible when you scan several times per day.
 ### Viewing Articles
 
 Human output of `articles`, `summary`, and `interest` shows a header line
-`[id] blog [tags] published-date | title` and a `URL:` line. Timestamps use local
-time in `YYYY-MM-DD HH:MM` format. `interest` also shows the interest reason;
+`[id] blog [tags] published-date | title` and a `URL:` line. Without a published
+date (common for scraped blogs), the header shows the discovered date with a `~`
+marker, for example `~2026-04-25`; `--since` uses the same fallback. Timestamps use
+local time in `YYYY-MM-DD HH:MM` format. `interest` also shows the interest reason;
 `summary` shows the summary text wrapped and indented to the terminal width
 (maximum 100 columns), plus one HN line when a discussion was found. Use `--verbose`
 for engine, size, timestamp, and HN metadata. HN summary text is shown like the summary

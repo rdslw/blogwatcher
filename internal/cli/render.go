@@ -41,8 +41,10 @@ func textWidth() int {
 	return min(max(width-1, minTextWidth), maxTextWidth)
 }
 
-// formatResultHeader builds the "[id] blog [tags] date | title" line.
-func formatResultHeader(id string, blogName string, tags []string, published *time.Time, title string) string {
+// formatResultHeader builds the "[id] blog [tags] date | title" line. The
+// date is the published date; without one, it is the discovered date with a
+// "~" marker (the same fallback as --since).
+func formatResultHeader(id string, blogName string, tags []string, published *time.Time, discovered *time.Time, title string) string {
 	parts := []string{id}
 	if blogName != "" {
 		parts = append(parts, blogName)
@@ -52,8 +54,11 @@ func formatResultHeader(id string, blogName string, tags []string, published *ti
 			parts = append(parts, tag)
 		}
 	}
-	if published != nil {
+	switch {
+	case published != nil:
 		parts = append(parts, published.Format("2006-01-02"))
+	case discovered != nil:
+		parts = append(parts, "~"+discovered.Local().Format("2006-01-02"))
 	}
 	return strings.Join(parts, " ") + " | " + title
 }
