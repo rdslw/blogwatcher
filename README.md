@@ -119,6 +119,14 @@ blogwatcher scan "Tech Blog"
 
 ### Viewing Articles
 
+Human output of `articles`, `summary`, and `interest` shows a header line
+`[id] blog [tags] published-date | title` and a `URL:` line. Timestamps use local
+time in `YYYY-MM-DD HH:MM` format. `interest` also shows the interest reason;
+`summary` shows the summary text wrapped and indented to the terminal width
+(maximum 100 columns), plus one HN line when a discussion was found. Use `--verbose`
+for engine, size, timestamp, and HN metadata. HN summary text is shown like the summary
+text: with `summary --verbose`, and with `--summary` for `articles` and `interest`.
+
 ```bash
 # List unread articles
 blogwatcher articles
@@ -142,10 +150,10 @@ blogwatcher articles -f pref
 blogwatcher articles -f prefer,norm
 blogwatcher articles -f prefer -f normal
 
-# Show blog, engine, summary size, and timestamp metadata
+# Add discovered time, classifier, summarizer, interest reason, and HN metadata
 blogwatcher articles --verbose
 
-# Show cached summary text alongside articles
+# Show cached summary and HN summary text alongside articles
 blogwatcher articles --summary
 
 # Combine verbose metadata with summary text
@@ -180,13 +188,11 @@ blogwatcher summary --refresh
 # Force local non-LLM summarization
 blogwatcher summary --extractive
 
-# Show blog, engine, and summary size metadata
+# Add summarizer, summary size, HN metadata, and HN summary text
 blogwatcher summary --verbose
 
 # Add cached or missing Hacker News data when a matching submission exists
-blogwatcher summary --hn
-
-# With --verbose, also show an LLM summary of the HN discussion
+# (use --verbose to also show the HN discussion summary)
 blogwatcher summary --hn --verbose
 
 # Regenerate HN metadata and discussion summaries
@@ -232,10 +238,10 @@ blogwatcher interest --filter norm
 blogwatcher interest --since 2026-05-01
 blogwatcher interest --since 7
 
-# Show cached summary text alongside interest results
+# Show cached summary and HN summary text alongside interest results
 blogwatcher interest --summary
 
-# Show blog, engine, summary size, and timestamp metadata
+# Add classifier, judged time, summarizer, and cached HN metadata
 blogwatcher interest --verbose
 
 # Add cached or missing Hacker News data for articles processed by this run

@@ -3,15 +3,16 @@ module github.com/rdslw/blogwatcher
 go 1.24.0
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/fatih/color v1.18.0
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/term v0.35.0
 	modernc.org/sqlite v1.38.2
 )
 
 require (
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect

@@ -26,8 +26,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand; override w
 | `blogwatcher interest --filter normal` | Classify normal-classified plus unclassified articles |
 | `blogwatcher articles --since 7` | Show posts from the last 7 days |
 | `blogwatcher articles --sort oldest` | Order by date (earliest first; default is `newest`) |
-| `blogwatcher articles -s` | Show cached summary text alongside articles |
-| `blogwatcher articles -v` | Show blog, engine, summary size, timestamp, and cached HN metadata |
+| `blogwatcher articles -s` | Show cached summary and HN summary text alongside articles |
+| `blogwatcher articles -v` | Add discovered time, classifier, summarizer, interest reason, and cached HN metadata |
 | `blogwatcher read <id> [id...]` | Mark article(s) as read |
 | `blogwatcher read --filter hide` | Mark all hide-classified unread articles as read |
 | `blogwatcher read --filter all` | Mark all unread articles as read |
@@ -40,8 +40,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand; override w
 | `blogwatcher interest [id]` | Classify article(s) as prefer/normal/hide |
 | `blogwatcher interest --all` | Classify all articles including read |
 | `blogwatcher interest --refresh` | Re-classify even if cached |
-| `blogwatcher interest -s` | Show cached summary text alongside interest results |
-| `blogwatcher interest -v` | Show blog, engine, summary size, and timestamp metadata |
+| `blogwatcher interest -s` | Show cached summary and HN summary text alongside interest results |
+| `blogwatcher interest -v` | Add classifier, judged time, summarizer, and cached HN metadata |
 | `blogwatcher interest --sort oldest` | Order output by date (earliest first; default `newest`) |
 | `blogwatcher add <name> <url>` | Add blog (auto-discovers RSS) |
 | `blogwatcher add <name> <url> --feed-url <rss>` | Add blog with explicit feed URL |
@@ -53,7 +53,8 @@ Database: `~/.blogwatcher/blogwatcher.db` (SQLite, created on demand; override w
 Common flags for `articles`, `summary`, `interest`, and bulk `read`: `--filter <value>` where values are `all`, `hide`, `normal`/`norm`, `prefer`/`pref`; repeat or comma-separate values to combine them.
 Common flags for `articles`, `summary`, and `interest`: `--since <YYYY-MM-DD|days>` narrows bulk/list queries to posts on or after the date, or within the last N days.
 Common flags for `summary` and `interest`: `--blog <name>`, `--limit N`, `--workers N`, `--model <model>`, `--verbose`, `--hn`, `--hn-refresh`, `--hn-limit N`
-Common flags for `articles` and `interest`: `--summary` (show cached summary text)
+Common flags for `articles` and `interest`: `--summary` (show cached summary and HN summary text)
+Human output of `articles`, `summary`, and `interest` shows a header line `[id] blog [tags] published-date | title` and a `URL:` line. Timestamps use local time in `YYYY-MM-DD HH:MM` format. Without `-v`, `interest` adds the interest reason, and `summary` adds the HN line (when a discussion was found) and the summary text; `summary` never shows the interest reason. Summary and HN summary text are wrapped and indented to the terminal width (maximum 100 columns).
 Common flags for `scan`, `summary`, and `interest`: `--debug` (timestamped profiling output on stderr)
 Common flags for `blogs`, `articles`, `summary`, and `interest`: `--json` (see [JSON Output](#json-output))
 Scan-specific: `--feed-discovery` (try RSS/Atom discovery even for blogs with a scrape selector)
@@ -127,9 +128,9 @@ The `interest_prompt` is the user-facing classification policy — what matters 
 
 ## Hacker News Enrichment
 
-Adds the matching HN discussion (points, comments, summary) to each article via Algolia HN search by URL. Works with `summary`, `interest`, and (display only) `articles -v`.
+Adds the matching HN discussion (points, comments, summary) to each article via Algolia HN search by URL. Works with `summary`, `interest`, and (display only) `articles`.
 
-**Display is always on for cached data.** Any article already enriched (`hn_fetched IS NOT NULL`) shows its cached HN line in `summary`, `interest`, and `articles -v` — no `--hn` needed. Articles checked but with no HN match show `no discussion found`.
+**Display of cached data needs no `--hn`.** `summary` shows one HN line (points, comments, URL) when a discussion was found. With `-v`, `summary`, `interest`, and `articles` always show the HN line: `not yet checked`, `no discussion found`, or the HN data. `interest` and `articles` show no HN data without `-v` or `-s`. `--json` always includes the HN data.
 
 **Flags gate fetching/summarizing only:**
 - `--hn` (or `[summary].hackernews = true`) enables fetching missing HN data and generating missing HN discussion summaries for selected articles. Available on `summary` and `interest`.
@@ -137,8 +138,8 @@ Adds the matching HN discussion (points, comments, summary) to each article via 
 - `--hn-limit N` (default 30) caps how many *new* HN discussion summaries are generated per run. Cached results are not counted.
 
 **Verbose output (`-v`):**
-- `summary -v` / `interest -v`: prints the HN discussion summary text.
-- `articles -v`: prints fetched timestamp, points/comments, HN URL, and HN summary char/word counts. Shows `not yet checked` for un-enriched articles.
+- `summary -v` / `interest -v` / `articles -v`: print the HN line (points, comments, URL; `articles` adds the fetched timestamp) and the HN summary char/word counts.
+- HN summary text is shown like the article summary text: always with `summary -v`, and with `-s` for `interest` and `articles`.
 
 Persisted fields: `hn_item_id` (0 = checked, no match), `hn_points`, `hn_comments`, `hn_summary`, `hn_fetched`.
 
@@ -205,7 +206,7 @@ blogwatcher read 42 99               # mark specific articles as read
 
 Group articles by blog. Use interest labels and summaries for context.
 
-Cached HN data (points, comments, summary) shows up in any `summary`/`interest`/`articles -v` output without a flag. If the user asks for community reaction, controversy, external validation, or Hacker News context for articles that haven't been enriched yet, run `blogwatcher summary --hn` or `blogwatcher interest --hn` to fetch missing HN data (capped by `--hn-limit`, default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
+Cached HN data (points, comments, summary) shows up in `summary` output (HN line), in `-v` output (HN line and size), in `-s` / `summary -v` output (HN summary text), and in every `--json` payload without `--hn`. If the user asks for community reaction, controversy, external validation, or Hacker News context for articles that haven't been enriched yet, run `blogwatcher summary --hn` or `blogwatcher interest --hn` to fetch missing HN data (capped by `--hn-limit`, default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
 
 ```
 📰 Blogwatcher — N new articles

@@ -193,7 +193,7 @@ last_scanned, stats) for agentic use.`,
 					fmt.Printf("    Selector: %s\n", blog.ScrapeSelector)
 				}
 				if blog.LastScanned != nil {
-					fmt.Printf("    Last scanned: %s\n", blog.LastScanned.Format("2006-01-02 15:04"))
+					fmt.Printf("    Last scanned: %s\n", formatDisplayTime(*blog.LastScanned))
 				}
 				fmt.Printf("    Entries: %d total, %s (%s)\n", stats.Total, formatUnreadCount(stats.Unread), formatInterestStats(stats))
 				fmt.Println()
@@ -516,8 +516,8 @@ data (when available) for agentic use.`,
 
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false, "Show all articles (including read)")
 	cmd.Flags().StringVarP(&blogName, "blog", "b", "", "Filter by blog name")
-	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside articles")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
+	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary and HN summary text alongside articles")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show discovered time, classifier, summarizer, interest reason, and HN metadata")
 	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Show posts since YYYY-MM-DD or N days ago")
@@ -897,7 +897,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to summarize (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel summarization")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, and summary size metadata")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show summarizer, summary size, HN metadata, and HN summary text")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Summarize posts since YYYY-MM-DD or N days ago")
@@ -1119,8 +1119,8 @@ the cutoff date. The filter uses published date, falling back to discovered date
 	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to classify (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel classification")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use for interest classification (overrides config)")
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show blog, engine, summary size, and timestamp metadata")
-	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary text alongside interest results")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show classifier, judged time, summarizer, and HN metadata")
+	cmd.Flags().BoolVarP(&showSummary, "summary", "s", false, "Show cached summary and HN summary text alongside interest results")
 	cmd.Flags().BoolVar(&debugFlag, "debug", false, "Show timestamped debug/profiling output on stderr")
 	cmd.Flags().StringVar(&sortFlag, "sort", "newest", "Sort by date: newest or oldest")
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Classify posts since YYYY-MM-DD or N days ago")
@@ -1132,120 +1132,133 @@ the cutoff date. The filter uses published date, falling back to discovered date
 }
 
 func printSummaryResult(result controller.SummaryResult, verbose bool) {
-	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
-	interestTag := formatInterestTag(result.Article.InterestState)
-
-	if interestTag != "" {
-		fmt.Printf("  %s %s %s\n", idStr, interestTag, result.Article.Title)
-	} else {
-		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
-	}
+	printResultHeader(result.Article, result.BlogName, formatInterestTag(result.Article.InterestState))
+	printArticleURL(result.Article)
 	if verbose {
-		fmt.Printf("       Blog: %s\n", result.BlogName)
-	}
-	fmt.Printf("       URL: %s\n", displayArticleURL(result.Article.URL))
-	if result.Article.PublishedDate != nil {
-		fmt.Printf("       Published: %s\n", result.Article.PublishedDate.Format("2006-01-02"))
-	}
-	if result.Article.InterestReason != "" {
-		fmt.Printf("       Reason: %s\n", result.Article.InterestReason)
-	}
-	if result.Warning != "" {
-		color.New(color.FgYellow).Printf("       Note: %s\n", result.Warning)
+		summarizerLabel := result.Engine
+		if result.Cached {
+			summarizerLabel += " (cached)"
+		}
+		if result.Article.Summary != "" {
+			summarizerLabel += ", " + formatSizeLabel(result.Article.Summary)
+		}
+		printField("Summarizer", summarizerLabel)
 	}
 	printHackerNewsResult(result.HackerNews, verbose)
-	summarizerLabel := result.Engine
-	if result.Cached {
-		summarizerLabel += " (cached)"
-	}
-	if verbose {
-		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
-	}
-	if verbose && result.Article.Summary != "" {
-		chars := len(result.Article.Summary)
-		words := len(strings.Fields(result.Article.Summary))
-		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
+	if result.Warning != "" {
+		printNoteField("Note", result.Warning)
 	}
 	if result.Article.Summary != "" {
-		fmt.Printf("       Summary: %s\n", result.Article.Summary)
+		printTextBlock("Summary", result.Article.Summary)
 	} else {
-		color.New(color.FgYellow).Printf("       Summary: (failed to generate)\n")
+		color.New(color.FgYellow).Printf("%sSummary: (failed to generate)\n", fieldIndent)
+	}
+	if verbose && result.HackerNews != nil {
+		printHackerNewsSummary(result.HackerNews.DiscussionSummary)
 	}
 	fmt.Println()
 }
 
 func printInterestResult(result controller.InterestResult, verbose bool, showSummary bool) {
-	idStr := color.New(color.FgCyan).Sprintf("[%d]", result.Article.ID)
 	interestTag := formatInterestTag(result.Article.InterestState)
-
 	if result.Skipped {
-		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
-	} else if interestTag != "" {
-		fmt.Printf("  %s %s %s\n", idStr, interestTag, result.Article.Title)
-	} else {
-		fmt.Printf("  %s %s\n", idStr, result.Article.Title)
+		interestTag = color.New(color.FgHiBlack).Sprint("[unclassified]")
 	}
-	if verbose {
-		fmt.Printf("       Blog: %s\n", result.BlogName)
-	}
-	fmt.Printf("       URL: %s\n", displayArticleURL(result.Article.URL))
-	if result.Article.PublishedDate != nil {
-		fmt.Printf("       Published: %s\n", result.Article.PublishedDate.Format("2006-01-02"))
-	}
-	if result.Skipped {
-		fmt.Printf("       Interest: (not classified)\n")
-	}
-	if result.Note != "" {
-		color.New(color.FgYellow).Printf("       Note: %s\n", result.Note)
-	}
-	if result.Article.InterestReason != "" {
-		fmt.Printf("       Reason: %s\n", result.Article.InterestReason)
-	}
-	printHackerNewsResult(result.HackerNews, verbose)
+	printResultHeader(result.Article, result.BlogName, interestTag)
+	printArticleURL(result.Article)
 	if verbose {
 		classifierLabel := result.Engine
 		if result.Cached {
 			classifierLabel += " (cached)"
 		}
 		if classifierLabel != "" {
-			fmt.Printf("       Classifier: %s\n", classifierLabel)
-		}
-		if result.Article.InterestJudged != nil {
-			fmt.Printf("       Judged: %s\n", result.Article.InterestJudged.Format(time.RFC3339))
+			if result.Article.InterestJudged != nil {
+				classifierLabel += ", judged " + formatDisplayTime(*result.Article.InterestJudged)
+			}
+			printField("Classifier", classifierLabel)
 		}
 	}
-	if verbose && result.Article.SummaryEngine != "" {
-		fmt.Printf("       Summarizer: %s\n", result.Article.SummaryEngine)
+	if !result.Skipped && result.Article.InterestReason != "" {
+		printField("Reason", result.Article.InterestReason)
 	}
-	if verbose && result.Article.Summary != "" {
-		chars := len(result.Article.Summary)
-		words := len(strings.Fields(result.Article.Summary))
-		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
+	if verbose {
+		printSummarizerField(result.Article)
+		printHackerNewsResult(result.HackerNews, true)
+	}
+	if result.Note != "" {
+		printNoteField("Note", result.Note)
 	}
 	if showSummary && result.Article.Summary != "" {
-		fmt.Printf("       Summary: %s\n", result.Article.Summary)
+		printTextBlock("Summary", result.Article.Summary)
+	}
+	if showSummary && result.HackerNews != nil {
+		printHackerNewsSummary(result.HackerNews.DiscussionSummary)
 	}
 	fmt.Println()
 }
 
+// printResultHeader prints the "[id] blog [tags] date | title" line.
+func printResultHeader(article model.Article, blogName string, tags ...string) {
+	id := color.New(color.FgCyan).Sprintf("[%d]", article.ID)
+	fmt.Printf("  %s\n", formatResultHeader(id, blogName, tags, article.PublishedDate, article.Title))
+}
+
+func printArticleURL(article model.Article) {
+	printField("URL", displayArticleURL(article.URL))
+}
+
+func printSummarizerField(article model.Article) {
+	if article.Summary == "" {
+		return
+	}
+	summarizerLabel := article.SummaryEngine
+	if summarizerLabel == "" {
+		summarizerLabel = "unknown"
+	}
+	printField("Summarizer", summarizerLabel+", "+formatSizeLabel(article.Summary))
+}
+
+// printHackerNewsResult prints the HN line when a discussion was found.
+// With verbose, it also reports missing or unmatched HN data, the HN note,
+// and the HN summary size.
 func printHackerNewsResult(result *hackernews.Result, verbose bool) {
 	if result == nil {
+		if verbose {
+			printField("HN", "not yet checked")
+		}
 		return
 	}
 	if result.NotFound {
-		fmt.Printf("       HN: no discussion found\n")
+		if verbose {
+			printField("HN", "no discussion found")
+		}
 		return
 	}
-	label := fmt.Sprintf("%s, %d points, %d comments", result.URL, result.Points, result.Comments)
+	label := fmt.Sprintf("%d points, %d comments", result.Points, result.Comments)
 	if result.Cached {
 		label += " (cached)"
 	}
-	fmt.Printf("       HN: %s\n", label)
-	if verbose && result.DiscussionSummary != "" {
-		fmt.Printf("       HN summary: %s\n", result.DiscussionSummary)
+	printField("HN", label+", URL: "+result.URL)
+	if !verbose {
+		return
 	}
-	if verbose && result.Warning != "" {
-		color.New(color.FgYellow).Printf("       HN note: %s\n", result.Warning)
+	if result.Warning != "" {
+		printNoteField("HN note", result.Warning)
+	}
+	printHackerNewsSummarySize(result.DiscussionSummary)
+}
+
+func printHackerNewsSummarySize(summary string) {
+	if summary != "" {
+		printField("HN summary size", formatSizeLabel(summary))
+	}
+}
+
+// printHackerNewsSummary prints the HN discussion summary as a text block,
+// the same as the article summary text.
+func printHackerNewsSummary(summary string) {
+	if summary != "" {
+		printTextBlock("HN summary", summary)
 	}
 }
 
@@ -1276,74 +1289,50 @@ func printArticle(article model.Article, blogName string, showSummary bool, verb
 	if article.IsRead {
 		status = color.New(color.FgHiBlack).Sprint("[read]")
 	}
-	idStr := color.New(color.FgCyan).Sprintf("[%d]", article.ID)
-	interestTag := formatInterestTag(article.InterestState)
-	if interestTag != "" {
-		fmt.Printf("  %s %s %s %s\n", idStr, status, interestTag, article.Title)
-	} else {
-		fmt.Printf("  %s %s %s\n", idStr, status, article.Title)
-	}
+	printResultHeader(article, blogName, status, formatInterestTag(article.InterestState))
+	printArticleURL(article)
 	if verbose {
-		fmt.Printf("       Blog: %s\n", blogName)
-	}
-	fmt.Printf("       URL: %s\n", displayArticleURL(article.URL))
-	if article.PublishedDate != nil {
-		fmt.Printf("       Published: %s\n", article.PublishedDate.Format("2006-01-02"))
-	}
-	if verbose && article.DiscoveredDate != nil {
-		fmt.Printf("       Discovered: %s\n", article.DiscoveredDate.Format("2006-01-02 15:04"))
-	}
-	if verbose && article.InterestState != "" {
-		classifierLabel := article.InterestEngine
-		if classifierLabel == "" {
-			classifierLabel = "unknown"
+		if article.DiscoveredDate != nil {
+			printField("Discovered", formatDisplayTime(*article.DiscoveredDate))
 		}
-		fmt.Printf("       Interest: %s (%s)\n", article.InterestState, classifierLabel)
-		if article.InterestReason != "" {
-			fmt.Printf("       Reason: %s\n", article.InterestReason)
+		if article.InterestState != "" {
+			classifierLabel := article.InterestEngine
+			if classifierLabel == "" {
+				classifierLabel = "unknown"
+			}
+			if article.InterestJudged != nil {
+				classifierLabel += ", judged " + formatDisplayTime(*article.InterestJudged)
+			}
+			printField("Classifier", classifierLabel)
+			if article.InterestReason != "" {
+				printField("Reason", article.InterestReason)
+			}
 		}
-		if article.InterestJudged != nil {
-			fmt.Printf("       Judged: %s\n", article.InterestJudged.Format(time.RFC3339))
-		}
-	}
-	if verbose && article.Summary != "" {
-		summarizerLabel := article.SummaryEngine
-		if summarizerLabel == "" {
-			summarizerLabel = "unknown"
-		}
-		fmt.Printf("       Summarizer: %s\n", summarizerLabel)
-		chars := len(article.Summary)
-		words := len(strings.Fields(article.Summary))
-		fmt.Printf("       Summary size: %d chars, %d words\n", chars, words)
+		printSummarizerField(article)
+		printArticleHackerNews(article)
 	}
 	if showSummary && article.Summary != "" {
-		fmt.Printf("       Summary: %s\n", article.Summary)
+		printTextBlock("Summary", article.Summary)
 	}
-	if verbose {
-		printArticleHackerNews(article)
+	if showSummary && article.HNItemID != 0 {
+		printHackerNewsSummary(article.HNSummary)
 	}
 	fmt.Println()
 }
 
 func printArticleHackerNews(article model.Article) {
 	if article.HNFetched == nil {
-		fmt.Printf("       HN: not yet checked\n")
+		printField("HN", "not yet checked")
 		return
 	}
+	fetched := formatDisplayTime(*article.HNFetched)
 	if article.HNItemID == 0 {
-		fmt.Printf("       HN: no discussion found (checked %s)\n", article.HNFetched.Format("2006-01-02 15:04"))
+		printField("HN", fmt.Sprintf("no discussion found (checked %s)", fetched))
 		return
 	}
-	fmt.Printf("       HN: fetched %s, %d points, %d comments\n",
-		article.HNFetched.Format("2006-01-02 15:04"), article.HNPoints, article.HNComments)
-	fmt.Printf("       HN URL: %s\n", hackernews.ItemURL(article.HNItemID))
-	if article.HNSummary != "" {
-		chars := len(article.HNSummary)
-		words := len(strings.Fields(article.HNSummary))
-		fmt.Printf("       HN summary: %d chars, %d words\n", chars, words)
-	} else {
-		fmt.Printf("       HN summary: (none)\n")
-	}
+	printField("HN", fmt.Sprintf("%d points, %d comments (fetched %s), URL: %s",
+		article.HNPoints, article.HNComments, fetched, hackernews.ItemURL(article.HNItemID)))
+	printHackerNewsSummarySize(article.HNSummary)
 }
 
 func formatInterestTag(state string) string {
