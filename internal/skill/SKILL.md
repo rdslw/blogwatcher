@@ -72,7 +72,7 @@ The `summary` command generates a short text summary for each article.
 - **Snippet mode** (no API key, or `--extractive`): first ~2000 characters, truncated at sentence boundary. Engine = `snippet`.
 - **Fallback:** if LLM call fails, falls back to snippet automatically.
 - **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
-- **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is stripped of HTML and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
+- **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is converted to text (one line per paragraph, heading, or list item) and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
 - **Cost control:** `--limit N` (default 80) caps the articles that need a new summary (`summary`) or a new classification (`interest`) per run; above it, the command stops with an ALERT and does no LLM work. `--workers N` controls article summary/classification concurrency. See [Hacker News Enrichment](#hacker-news-enrichment) for `--hn-limit`.
 
 ### Summary Configuration
@@ -226,7 +226,7 @@ remaining-blogs — no updates.
 ```
 
 - Add ⭐ prefix for blogs with prefer-classified articles.
-- Include published date and interest reason when relevant.
+- Include published date (JSON `published_date`, else `discovered_date`) and interest reason when relevant.
 - After presenting, leave articles as **unread** unless the user says otherwise.
 - When zero new articles: just say "no new articles" or equivalent.
 

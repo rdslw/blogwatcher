@@ -8,16 +8,19 @@ This repository is the `rdslw` fork of the original [`Hyaxia/blogwatcher`](https
 
 Short list of changes in this fork:
 
-- **Article summaries**: adds cached article summarization with OpenAI-backed and local extractive modes.
+- **Article summaries**: adds cached article summarization with OpenAI-backed (default model `gpt-6-luna`) and local extractive modes.
 - **Interest classification**: adds configurable `prefer` / `normal` / `hide` ranking driven by cached summaries.
 - **Hacker News enrichment**: optionally finds matching HN submissions and caches points, comment count, and an LLM summary of the discussion.
-- **HN cost controls**: HN enrichment has its own cache, refresh flag, request-size limit, and `--hn-limit` guard for large runs.
+- **HN cost controls**: HN enrichment has its own cache, refresh flag, and request-size limit. `--hn-limit` is a soft cap on new HN discussion summaries (extra articles get a note; the run does not fail), and `interest` generates no HN summaries for hide-classified articles.
+- **Readable terminal output**: `articles`, `summary`, and `interest` use a compact `[id] blog [tags] date | title` header (`~date` = discovered date when no published date exists) and a `URL:` line; summary and HN summary text are wrapped and indented to the terminal width. Default output stays short; `-v` adds engine, size, timestamp, and HN metadata.
+- **Daily scan count**: `scan` shows `Today` (articles discovered since local midnight) next to `New`, so repeated scans on one day keep earlier finds visible.
 - **Export command**: adds `blogwatcher export` to dump tracked blogs as a replayable shell script.
 - **Rename command**: adds `blogwatcher rename <old-name> <new-name>` while preserving the blog's articles and cached data.
 - **JSON output**: `--json` on `blogs`, `articles`, `summary`, and `interest` for scriptable / agentic consumers.
 - **Time-bounded queries**: `--since` on `articles`, `summary`, and `interest` to select posts by date or recent day count.
 - **Configurable User-Agent**: uses a versioned BlogWatcher identity by default, with a global `config.toml` override for feed, blog, and article requests.
 - Scraper parsing is more robust for tricky titles and published-date extraction on HTML-only blogs.
+- HTML-to-text conversion (RSS descriptions and article pages) keeps paragraph, heading, and list boundaries, so text from adjacent HTML blocks does not run together.
 
 ### Upstream Integration Policy
 
@@ -428,7 +431,7 @@ blogwatcher read --filter pref
 1. For each tracked blog, BlogWatcher first attempts to parse the RSS/Atom feed
 2. If no feed URL is configured, it tries to auto-discover one from the blog homepage
 3. If RSS parsing fails and a `scrape_selector` is configured, it falls back to HTML scraping
-4. New articles are saved to the database as unread. If the RSS feed includes a description, it is stored as an initial summary (engine = "rss", up to 2000 characters)
+4. New articles are saved to the database as unread. If the RSS feed includes a description, it is converted to text (one line per paragraph, heading, or list item) and stored as an initial summary (engine = "rss", up to 2000 characters)
 5. Already-tracked articles are skipped
 
 ### Feed Auto-Discovery
