@@ -503,11 +503,27 @@ func TestStripHTMLTags(t *testing.T) {
 	}{
 		{"plain text", "hello world", "hello world"},
 		{"simple HTML", "<p>hello</p>", "hello"},
-		{"nested HTML", "<div><p>hello</p><p>world</p></div>", "helloworld"},
+		{"nested HTML", "<div><p>hello</p><p>world</p></div>", "hello\nworld"},
 		{"with links", `<p>Check <a href="https://example.com">this</a> out</p>`, "Check this out"},
 		{"empty", "", ""},
 		{"whitespace only HTML", "<p>  </p>", ""},
-		{"mixed content", `<div>First</div><br/><div>Second</div>`, "FirstSecond"},
+		{"mixed content", `<div>First</div><br/><div>Second</div>`, "First\nSecond"},
+		{"adjacent inline elements", "<p><b>foo</b><i>bar</i></p>", "foobar"},
+		{
+			"block after paragraph",
+			`<p>you should install it.</p><div class="linkback">Related Roundups: <a href="/ios">iOS 26</a>, <a href="/ipados">iPadOS 26</a></div><div>Related Forum: <a href="/f">iOS 26</a></div>`,
+			"you should install it.\nRelated Roundups: iOS 26, iPadOS 26\nRelated Forum: iOS 26",
+		},
+		{"line break", "first line<br>second line", "first line\nsecond line"},
+		{"source newlines collapse", "<p>one\n  two\tthree</p>", "one two three"},
+		{"heading", "<h2>Title</h2><p>Body</p>", "Title\nBody"},
+		{"list", "<p>Fixes:</p><ul><li>one</li><li>two <b>bold</b></li></ul>", "Fixes:\n- one\n- two bold"},
+		{"list item with paragraph", "<ul><li><p>item text</p></li></ul>", "- item text"},
+		{"empty list item", "<ul><li></li><li>kept</li></ul>", "- kept"},
+		{"preformatted", "<pre>a  b\n  c</pre>", "a  b\nc"},
+		{"script and style skipped", "<p>text</p><script>var x = 1;</script><style>p{}</style>", "text"},
+		{"table cells", "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td></tr></table>", "a b\nc"},
+		{"plain text keeps lines", "first line\n  second line\n\nthird", "first line\nsecond line\nthird"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

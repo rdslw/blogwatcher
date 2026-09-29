@@ -207,7 +207,7 @@ func extractPreferredContent(doc *goquery.Document) string {
 
 	for _, selector := range selectors {
 		doc.Find(selector).Each(func(_ int, selection *goquery.Selection) {
-			text := strings.TrimSpace(selection.Text())
+			text := selectionText(selection)
 			if text == "" {
 				return
 			}
@@ -299,22 +299,19 @@ func wordCount(text string) int {
 	return len(strings.Fields(text))
 }
 
-// StripHTMLTags parses HTML and extracts clean text. Plain text is returned trimmed.
+// StripHTMLTags parses HTML and extracts clean text with one line per block
+// element. Plain text without HTML elements keeps its line breaks; its lines
+// are trimmed and empty lines are dropped.
 func StripHTMLTags(html string) string {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return strings.TrimSpace(html)
 	}
-	text := doc.Find("body").Text()
-	lines := strings.Split(text, "\n")
-	var cleaned []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			cleaned = append(cleaned, line)
-		}
+	body := doc.Find("body")
+	if body.Find("*").Length() == 0 {
+		return cleanLines(body.Text())
 	}
-	return strings.TrimSpace(strings.Join(cleaned, "\n"))
+	return selectionText(body)
 }
 
 // TruncateText truncates text to maxChars runes, appending "[...]" if truncated.
