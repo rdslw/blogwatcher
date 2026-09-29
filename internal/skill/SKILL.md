@@ -73,7 +73,7 @@ The `summary` command generates a short text summary for each article.
 - **Fallback:** if LLM call fails, falls back to snippet automatically.
 - **Caching:** summaries are stored in the database. Subsequent calls return the cached version unless `--refresh` is used.
 - **RSS summaries:** during `scan`, if an RSS/Atom feed item includes a description, it is stripped of HTML and stored as an initial summary (engine = `rss`, up to 2000 characters). Short RSS descriptions (under 500 characters) are automatically upgraded to full summaries on the next `summary` or `interest` run — no `--refresh` needed. Longer RSS summaries (500+ chars) are treated as cached and kept unless `--refresh` is used. If upgrading or refreshing fails (e.g. HTTP 403), the existing RSS summary is always preserved.
-- **Cost control:** `--limit N` (default 50) caps article summaries only. `--workers N` controls article summary/classification concurrency. See [Hacker News Enrichment](#hacker-news-enrichment) for `--hn-limit`.
+- **Cost control:** `--limit N` (default 80) caps the articles that need a new summary (`summary`) or a new classification (`interest`) per run; above it, the command stops with an ALERT and does no LLM work. `--workers N` controls article summary/classification concurrency. See [Hacker News Enrichment](#hacker-news-enrichment) for `--hn-limit`.
 
 ### Summary Configuration
 
@@ -84,7 +84,7 @@ user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
 
 [summary]
 openai_api_key = "sk-..."       # or set OPENAI_API_KEY env var
-model = "gpt-5.4-nano"          # default model
+model = "gpt-6-luna"            # default model
 system_prompt = "..."            # custom summarizer prompt
 max_request_bytes = 40960        # max article text sent to LLM
 hackernews_max_request_bytes = 204800 # max HN Path ID text sent to LLM
@@ -113,7 +113,7 @@ The `interest` command classifies each article as **prefer**, **normal**, or **h
 ```toml
 [interest]
 openai_api_key = "sk-..."
-model = "gpt-5.4-nano"
+model = "gpt-6-luna"
 system_prompt = "..."                # classifier system prompt (controls JSON output format)
 interest_prompt = "Prefer ..."       # global classification policy
 
@@ -135,7 +135,7 @@ Adds the matching HN discussion (points, comments, summary) to each article via 
 **Flags gate fetching/summarizing only:**
 - `--hn` (or `[summary].hackernews = true`) enables fetching missing HN data and generating missing HN discussion summaries for selected articles. Available on `summary` and `interest`.
 - `--hn-refresh` re-fetches HN metadata and regenerates HN summaries even if cached.
-- `--hn-limit N` (default 30) caps how many *new* HN discussion summaries (LLM calls) are generated per run. HN lookups and cached results are not counted. Articles over the cap keep HN metadata and get a note (`HN summary skipped: --hn-limit (N) reached`); a later run summarizes them. The command does not fail.
+- `--hn-limit N` (default 40) caps how many *new* HN discussion summaries (LLM calls) are generated per run. HN lookups and cached results are not counted. Articles over the cap keep HN metadata and get a note (`HN summary skipped: --hn-limit (N) reached`); a later run summarizes them. The command does not fail.
 - In `interest`, hide-classified articles get HN metadata (points, comments) but no HN summary (`-v`: `HN summary: skipped for hide article`; JSON `hn.summary_skipped: "hide"`). `summary --hn` has no such rule.
 
 **Verbose output (`-v`):**
@@ -207,7 +207,7 @@ blogwatcher read 42 99               # mark specific articles as read
 
 Group articles by blog. Use interest labels and summaries for context.
 
-Cached HN data (points, comments, summary) shows up in `summary` output (HN line), in `-v` output (HN line and size), in `-s` / `summary -v` output (HN summary text), and in every `--json` payload without `--hn`. If the user asks for community reaction, controversy, external validation, or Hacker News context for articles that haven't been enriched yet, run `blogwatcher summary --hn` or `blogwatcher interest --hn` to fetch missing HN data (capped by `--hn-limit`, default 30). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
+Cached HN data (points, comments, summary) shows up in `summary` output (HN line), in `-v` output (HN line and size), in `-s` / `summary -v` output (HN summary text), and in every `--json` payload without `--hn`. If the user asks for community reaction, controversy, external validation, or Hacker News context for articles that haven't been enriched yet, run `blogwatcher summary --hn` or `blogwatcher interest --hn` to fetch missing HN data (capped by `--hn-limit`, default 40). Do not use `--hn-refresh` unless the user asks for fresh HN data or the cached HN data is clearly stale.
 
 ```
 📰 Blogwatcher — N new articles

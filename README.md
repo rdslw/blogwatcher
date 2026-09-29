@@ -202,7 +202,7 @@ blogwatcher summary --hn --verbose
 # Regenerate HN metadata and discussion summaries
 blogwatcher summary --hn-refresh
 
-# Allow more than the default 30 new HN discussion summaries
+# Allow more than the default 40 new HN discussion summaries
 blogwatcher summary --hn --hn-limit 100
 
 # Sort output by date: newest first (default) or oldest first
@@ -267,7 +267,7 @@ Create `~/.blogwatcher/config.toml`:
 user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
 
 [summary]
-model = "gpt-5.4-nano"
+model = "gpt-6-luna"
 openai_api_key = "sk-..."
 max_request_bytes = 40960
 hackernews_max_request_bytes = 204800
@@ -292,7 +292,7 @@ HN enrichment stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and
 only missing ones. `--hn-refresh` fetches HN again and regenerates the HN summary.
 If no HN discussion is found, `hn_item_id = 0` and `hn_fetched` record the check,
 but later `--hn` runs still retry because articles can reach HN later.
-`--hn-limit` (default 30) caps the new HN discussion summaries (LLM calls) per run,
+`--hn-limit` (default 40) caps the new HN discussion summaries (LLM calls) per run,
 because each can send up to `hackernews_max_request_bytes` to the LLM. HN lookups
 are not counted. Articles over the cap keep their HN metadata, get a note, and are
 summarized by a later run; the command does not fail. In `interest`, hide-classified
@@ -309,7 +309,7 @@ Create `~/.blogwatcher/config.toml` with a default interest prompt and optional 
 ```toml
 [interest]
 openai_api_key = "sk-..."
-model = "gpt-5.4-nano"
+model = "gpt-6-luna"
 max_request_bytes = 12288
 system_prompt = """
 You are classifying whether a blog article is worth prioritizing for the user.

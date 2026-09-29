@@ -917,7 +917,7 @@ func TestSummarizeArticlesHackerNewsUsesCurrentScopeOnly(t *testing.T) {
 
 	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{
 		Enabled: true,
-		Limit:   30,
+		Limit:   40,
 	})
 	if err != nil {
 		t.Fatalf("summarize articles: %v", err)
@@ -1458,7 +1458,7 @@ func TestClassifyArticleInterestAutoGeneratesSummaryAndCachesResult(t *testing.T
 	}
 
 	result, err := ClassifyArticleInterest(db, article.ID, false, false, false, summarizer.Options{}, config.InterestConfig{
-		Model:          "gpt-5.4-nano",
+		Model:          "gpt-6-luna",
 		InterestPrompt: "Default prompt",
 		Blogs: map[string]config.InterestBlogConfig{
 			"Tech Blog": {InterestPrompt: "Prefer compiler posts."},
@@ -1573,7 +1573,7 @@ func TestClassifyArticlesInterestHackerNewsEnrichesResults(t *testing.T) {
 
 	results, err := ClassifyArticlesInterest(db, false, "", false, false, false, 10, 1, summarizer.Options{}, config.InterestConfig{
 		InterestPrompt: "Prefer technical posts.",
-	}, HackerNewsOptions{Enabled: true, Limit: 30})
+	}, HackerNewsOptions{Enabled: true, Limit: 40})
 	if err != nil {
 		t.Fatalf("classify articles interest: %v", err)
 	}

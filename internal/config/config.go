@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DefaultModel                     = "gpt-5.4-nano"
+	DefaultModel                     = "gpt-6-luna"
 	DefaultMaxRequestBytes           = 40960
 	DefaultInterestMaxRequestBytes   = 12288
 	DefaultHackerNewsMaxRequestBytes = 204800

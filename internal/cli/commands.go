@@ -725,7 +725,7 @@ Configuration via ~/.blogwatcher/config.toml:
                                       # Optional; defaults to Blogwatcher's versioned UA
 
   [summary]
-  model = "gpt-5.4-nano"           # OpenAI model to use
+  model = "gpt-6-luna"             # OpenAI model to use
   system_prompt = "..."            # Custom system prompt
   max_request_bytes = 40960        # Max article text sent to LLM (bytes)
   hackernews_max_request_bytes = 204800
@@ -733,7 +733,7 @@ Configuration via ~/.blogwatcher/config.toml:
   hackernews_prompt = "..."        # Custom HN discussion summary prompt
 
 HN enrichment uses cached HN summaries when present. Missing HN summaries are
-generated only for selected articles. --hn-limit (default 30) caps the new HN
+generated only for selected articles. --hn-limit (default 40) caps the new HN
 discussion summaries (LLM calls) per run; HN lookups are not counted. Articles
 over the cap keep their HN metadata and get a note; a later run summarizes them.
 Use --hn-refresh to refresh HN metadata and regenerate HN summaries. Large HN
@@ -751,10 +751,15 @@ the cutoff date. The filter uses published date, falling back to discovered date
 
 Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 
-  gpt-4o-mini     ~$0.0015/article   (cheapest, older model)
+  gpt-6-luna      ~$0.0011/article   (default, cheapest)
+  gpt-4o-mini     ~$0.0015/article   (older model)
+  gpt-5.6-luna    ~$0.0022/article
+  gpt-5.4-nano    ~$0.0023/article   (previous default)
   gpt-5-mini      ~$0.0029/article
-  gpt-5.4-nano    ~$0.0023/article   (default, best value)
-  gpt-5.4-mini    ~$0.0084/article   (strongest mini model)`,
+  gpt-5.4-mini    ~$0.0084/article   (strongest mini model)
+
+An HN discussion summary sends up to hackernews_max_request_bytes (~50K tokens
+at the default): at most ~$0.0053 each with gpt-6-luna.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dbg *debug.Logger
@@ -899,7 +904,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().StringArrayVarP(&interestFilterValues, "filter", "f", []string{"all"}, "Interest filter: all, hide, normal/norm, prefer/pref (repeat or comma-separate)")
 	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback (first ~2K chars, ignore OPENAI_API_KEY)")
 	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-generate summary even if cached")
-	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to summarize (safety limit for LLM costs)")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 80, "Max number of articles to summarize (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel summarization")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use (overrides config)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show summarizer, summary size, HN metadata, and HN summary text")
@@ -908,7 +913,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Summarize posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
-	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 40, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
@@ -952,7 +957,7 @@ Example interest_prompt:
 Configuration via ~/.blogwatcher/config.toml:
 
   [interest]
-  model = "gpt-5.4-nano"
+  model = "gpt-6-luna"
   system_prompt = "..."
   max_request_bytes = 12288
   interest_prompt = "Prefer systems posts with concrete benchmarks and hide generic launch posts."
@@ -961,7 +966,7 @@ Configuration via ~/.blogwatcher/config.toml:
   interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."
 
 Use --hn or [summary].hackernews=true to add cached or missing Hacker News data.
---hn-limit (default 30) caps new HN discussion summaries per run; articles over
+--hn-limit (default 40) caps new HN discussion summaries per run; articles over
 the cap get a note and are summarized by a later run. --hn-refresh regenerates them.
 Hide-classified articles get HN metadata (points, comments) but no HN summary,
 because the classifier does not use HN data.
@@ -1124,7 +1129,7 @@ the cutoff date. The filter uses published date, falling back to discovered date
 	cmd.Flags().BoolVarP(&refresh, "refresh", "r", false, "Re-classify interest even if cached")
 	cmd.Flags().BoolVar(&refreshSummary, "refresh-summary", false, "Re-generate summaries before classification")
 	cmd.Flags().BoolVarP(&forceExtractive, "extractive", "x", false, "Force extractive fallback when generating missing summaries")
-	cmd.Flags().IntVarP(&limit, "limit", "l", 50, "Max number of articles to classify (safety limit for LLM costs)")
+	cmd.Flags().IntVarP(&limit, "limit", "l", 80, "Max number of articles to classify (safety limit for LLM costs)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 8, "Number of concurrent workers for parallel classification")
 	cmd.Flags().StringVarP(&modelFlag, "model", "m", "", "OpenAI model to use for interest classification (overrides config)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show classifier, judged time, summarizer, and HN metadata")
@@ -1134,7 +1139,7 @@ the cutoff date. The filter uses published date, falling back to discovered date
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Classify posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
-	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 40, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
