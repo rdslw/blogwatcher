@@ -171,7 +171,7 @@ Persisted fields: `hn_item_id` (0 = checked, no match), `hn_points`, `hn_comment
 blogwatcher scan
 ```
 
-Wait for completion. This fetches new articles from all tracked blogs via RSS/Atom or HTML scraping. RSS feed descriptions are automatically stored as initial summaries.
+Wait for completion. This fetches new articles from all tracked blogs via RSS/Atom or HTML scraping. RSS feed descriptions are automatically stored as initial summaries. Per blog, `New` counts articles found by this scan and `Today` counts articles discovered since local midnight (includes earlier scans on the same day).
 
 ### 2. Classify interest (auto-summarizes)
 

@@ -349,11 +349,13 @@ the versioned Blogwatcher User-Agent for blog and article requests.`,
 					return err
 				}
 				totalNew := 0
+				totalToday := 0
 				for _, result := range results {
 					if !silent {
 						printScanResult(result)
 					}
 					totalNew += result.NewArticles
+					totalToday += result.NewToday
 				}
 				if !silent {
 					fmt.Println()
@@ -362,6 +364,7 @@ the versioned Blogwatcher User-Agent for blog and article requests.`,
 					} else {
 						color.New(color.FgYellow).Println("No new articles found.")
 					}
+					todayColor(totalToday).Printf("Today: %d new article(s).\n", totalToday)
 				}
 			}
 
@@ -1281,7 +1284,18 @@ func printScanResult(result scanner.ScanResult) {
 		sourceLabel = "RSS"
 	}
 	fmt.Printf("    Source: %s | Total: %d | Unread: %d | ", sourceLabel, result.TotalArticles, result.UnreadArticles)
+	todayColor(result.NewToday).Printf("Today: %d", result.NewToday)
+	fmt.Print(" | ")
 	color.New(statusColor).Printf("New: %d\n", result.NewArticles)
+}
+
+// todayColor highlights articles discovered today, so that they stay visible
+// across repeated scans on the same day.
+func todayColor(count int) *color.Color {
+	if count > 0 {
+		return color.New(color.FgYellow, color.Bold)
+	}
+	return color.New(color.FgWhite)
 }
 
 func printArticle(article model.Article, blogName string, showSummary bool, verbose bool) {

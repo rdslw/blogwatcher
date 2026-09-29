@@ -117,6 +117,10 @@ blogwatcher scan
 blogwatcher scan "Tech Blog"
 ```
 
+Each blog line shows `Total`, `Unread`, `Today`, and `New`. `New` counts articles
+found by this scan. `Today` counts articles discovered since local midnight, so it
+stays visible when you scan several times per day.
+
 ### Viewing Articles
 
 Human output of `articles`, `summary`, and `interest` shows a header line

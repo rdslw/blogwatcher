@@ -66,6 +66,44 @@ func TestScanBlogRSS(t *testing.T) {
 	}
 }
 
+func TestScanBlogCountsNewTodayAcrossScans(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(sampleFeed))
+	}))
+	defer server.Close()
+
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com", FeedURL: server.URL})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	yesterday := time.Now().AddDate(0, 0, -1)
+	if _, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Old", URL: "https://example.com/old", DiscoveredDate: &yesterday}); err != nil {
+		t.Fatalf("add old article: %v", err)
+	}
+
+	first := ScanBlog(db, blog)
+	if first.NewArticles != 2 || first.NewToday != 2 {
+		t.Fatalf("first scan: expected 2 new and 2 today, got new=%d today=%d", first.NewArticles, first.NewToday)
+	}
+
+	second := ScanBlog(db, blog)
+	if second.NewArticles != 0 || second.NewToday != 2 {
+		t.Fatalf("second scan: expected 0 new and 2 today, got new=%d today=%d", second.NewArticles, second.NewToday)
+	}
+}
+
+func TestStartOfDay(t *testing.T) {
+	now := time.Date(2026, 9, 29, 15, 4, 5, 0, time.Local)
+	want := time.Date(2026, 9, 29, 0, 0, 0, 0, time.Local)
+	if got := startOfDay(now); !got.Equal(want) {
+		t.Fatalf("startOfDay() = %v, want %v", got, want)
+	}
+}
+
 func TestScanBlogUsesConfiguredUserAgent(t *testing.T) {
 	const userAgent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

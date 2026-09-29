@@ -226,6 +226,47 @@ func TestCountArticleStats(t *testing.T) {
 	}
 }
 
+func TestCountArticlesDiscoveredSince(t *testing.T) {
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "blogwatcher.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer db.Close()
+
+	blog, err := db.AddBlog(model.Blog{Name: "Test", URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	other, err := db.AddBlog(model.Blog{Name: "Other", URL: "https://other.example.com"})
+	if err != nil {
+		t.Fatalf("add other blog: %v", err)
+	}
+
+	since := time.Date(2026, 9, 29, 0, 0, 0, 0, time.FixedZone("CEST", 2*60*60))
+	before := since.Add(-time.Minute).UTC()
+	atStart := since
+	later := since.Add(3 * time.Hour).UTC()
+	articles := []model.Article{
+		{BlogID: blog.ID, Title: "Before", URL: "https://example.com/before", DiscoveredDate: &before},
+		{BlogID: blog.ID, Title: "At start", URL: "https://example.com/start", DiscoveredDate: &atStart},
+		{BlogID: blog.ID, Title: "Later", URL: "https://example.com/later", DiscoveredDate: &later},
+		{BlogID: other.ID, Title: "Other blog", URL: "https://other.example.com/later", DiscoveredDate: &later},
+	}
+	for _, article := range articles {
+		if _, err := db.AddArticle(article); err != nil {
+			t.Fatalf("add article %q: %v", article.Title, err)
+		}
+	}
+
+	count, err := db.CountArticlesDiscoveredSince(blog.ID, since)
+	if err != nil {
+		t.Fatalf("count discovered since: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 articles discovered since start of day, got %d", count)
+	}
+}
+
 func TestDatabaseForeignKeyEnforced(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "blogwatcher.db")

@@ -370,6 +370,18 @@ func (db *Database) CountArticles(blogID int64) (total int, unread int, err erro
 	return stats.Total, stats.Unread, nil
 }
 
+// CountArticlesDiscoveredSince counts a blog's articles discovered at or
+// after since. julianday() compares stored timestamps across time zones and
+// formats (RFC3339 with offset and SQLite's default UTC layout).
+func (db *Database) CountArticlesDiscoveredSince(blogID int64, since time.Time) (int, error) {
+	var count int
+	err := db.conn.QueryRow(
+		`SELECT COUNT(*) FROM articles WHERE blog_id = ? AND julianday(discovered_date) >= julianday(?)`,
+		blogID, since.UTC().Format(sqliteTimeLayout),
+	).Scan(&count)
+	return count, err
+}
+
 type ArticleStats struct {
 	Total  int
 	Unread int

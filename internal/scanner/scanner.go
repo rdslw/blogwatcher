@@ -15,6 +15,7 @@ import (
 type ScanResult struct {
 	BlogName       string
 	NewArticles    int
+	NewToday       int
 	TotalArticles  int
 	UnreadArticles int
 	Source         string
@@ -152,16 +153,28 @@ func ScanBlogDebug(db *storage.Database, blog model.Blog, opts Options, workerTa
 		errText = err.Error()
 	}
 
+	newToday, err := db.CountArticlesDiscoveredSince(blog.ID, startOfDay(discoveredAt))
+	if err != nil {
+		errText = err.Error()
+	}
+
 	dbg.Log("%sscan done  blog=%q source=%s found=%d total=%d unread=%d new=%d (%s)", workerTag, blog.Name, source, len(seenURLs), totalArticles, unreadArticles, newCount, time.Since(blogStart))
 
 	return ScanResult{
 		BlogName:       blog.Name,
 		NewArticles:    newCount,
+		NewToday:       newToday,
 		TotalArticles:  totalArticles,
 		UnreadArticles: unreadArticles,
 		Source:         source,
 		Error:          errText,
 	}
+}
+
+// startOfDay returns local midnight of the day that contains t.
+func startOfDay(t time.Time) time.Time {
+	year, month, day := t.Local().Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.Local)
 }
 
 func parseFeedWithRetries(feedURL string, userAgent string, workerTag string, dbg *debug.Logger) ([]rss.FeedArticle, error) {
