@@ -62,7 +62,7 @@ func TestEnrichArticleUsesCachedHNSummary(t *testing.T) {
 		HNPoints:   10,
 		HNComments: 3,
 		HNSummary:  "cached HN summary",
-	}, summarizer.Options{}, false)
+	}, summarizer.Options{}, false, "")
 	if err != nil {
 		t.Fatalf("enrich article: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestEnrichArticleUsesCachedZeroCommentItem(t *testing.T) {
 		HNPoints:   10,
 		HNComments: 0,
 		HNFetched:  &fetched,
-	}, summarizer.Options{}, false)
+	}, summarizer.Options{}, false, "")
 	if err != nil {
 		t.Fatalf("enrich article: %v", err)
 	}
@@ -93,5 +93,24 @@ func TestEnrichArticleUsesCachedZeroCommentItem(t *testing.T) {
 	}
 	if result.Comments != 0 {
 		t.Fatalf("expected zero comments, got %d", result.Comments)
+	}
+}
+
+func TestEnrichArticleSkipsSummaryForCheckedItem(t *testing.T) {
+	fetched := time.Now()
+	result, err := EnrichArticle(model.Article{
+		HNItemID:   42,
+		HNPoints:   10,
+		HNComments: 5,
+		HNFetched:  &fetched,
+	}, summarizer.Options{}, false, SummarySkippedHide)
+	if err != nil {
+		t.Fatalf("enrich article: %v", err)
+	}
+	if result == nil || !result.Cached || result.Summarized {
+		t.Fatalf("expected cached result without summary call, got %+v", result)
+	}
+	if result.SummarySkipped != SummarySkippedHide || result.Comments != 5 {
+		t.Fatalf("expected skipped summary with cached metadata, got %+v", result)
 	}
 }

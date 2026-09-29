@@ -62,6 +62,9 @@ type jsonHN struct {
 	Summary  string     `json:"summary,omitempty"`
 	Warning  string     `json:"warning,omitempty"`
 	Cached   bool       `json:"cached,omitempty"`
+	// SummarySkipped is "hide" or "hn-limit" when no discussion summary was
+	// generated in this run.
+	SummarySkipped string `json:"summary_skipped,omitempty"`
 }
 
 type jsonSummaryResult struct {
@@ -153,6 +156,8 @@ func toJSONHNResult(r *hackernews.Result) *jsonHN {
 		Summary:  r.DiscussionSummary,
 		Warning:  r.Warning,
 		Cached:   r.Cached,
+
+		SummarySkipped: r.SummarySkipped,
 	}
 }
 

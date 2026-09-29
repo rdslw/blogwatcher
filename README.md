@@ -292,8 +292,12 @@ HN enrichment stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and
 only missing ones. `--hn-refresh` fetches HN again and regenerates the HN summary.
 If no HN discussion is found, `hn_item_id = 0` and `hn_fetched` record the check,
 but later `--hn` runs still retry because articles can reach HN later.
-New HN summaries are capped by `--hn-limit` (default 30); raise it explicitly for
-large runs such as `--all`. Large HN discussions are truncated to
+`--hn-limit` (default 30) caps the new HN discussion summaries (LLM calls) per run,
+because each can send up to `hackernews_max_request_bytes` to the LLM. HN lookups
+are not counted. Articles over the cap keep their HN metadata, get a note, and are
+summarized by a later run; the command does not fail. In `interest`, hide-classified
+articles get HN metadata but no HN summary, because the classifier does not use HN
+data (`-v` shows `HN summary: skipped for hide article`). Large HN discussions are truncated to
 `hackernews_max_request_bytes` before the LLM call; verbose output notes truncation.
 The summary and HN limits are separate: `max_request_bytes` is for article text,
 while `hackernews_max_request_bytes` is for HN Path ID discussion text.
@@ -375,7 +379,7 @@ Envelope shapes:
 - `summary` → `{"summaries": [ { article: <article>, blog_name?, engine?, cached?, upgraded?, warning?, hn? } ]}`
 - `interest` → `{"interests": [ { article: <article>, blog_name?, engine?, cached?, skipped?, note?, hn? } ]}`
 
-`<article>` always includes `id`, `blog_id`, `title`, `url`, `is_read`, and (when populated) `blog_name`, `published_date`, `discovered_date`, `summary`, `summary_engine`, `interest_state`, `interest_reason`, `interest_engine`, `interest_judged`, `hn`. The `hn` object is included only when the article has been HN-checked and exposes `fetched`, `found`, and (when found) `item_id`, `url`, `points`, `comments`, `summary`, `warning`, `cached`.
+`<article>` always includes `id`, `blog_id`, `title`, `url`, `is_read`, and (when populated) `blog_name`, `published_date`, `discovered_date`, `summary`, `summary_engine`, `interest_state`, `interest_reason`, `interest_engine`, `interest_judged`, `hn`. The `hn` object is included only when the article has been HN-checked and exposes `fetched`, `found`, and (when found) `item_id`, `url`, `points`, `comments`, `summary`, `warning`, `cached`, and in summary/interest results `summary_skipped` (`hide` or `hn-limit`).
 
 On failure the command writes `{"error": "..."}` to stdout and exits non-zero.
 

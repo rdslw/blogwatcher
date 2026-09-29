@@ -22,6 +22,12 @@ const (
 	timeout        = 15 * time.Second
 )
 
+// Reasons why a discussion summary was not generated.
+const (
+	SummarySkippedHide  = "hide"
+	SummarySkippedLimit = "hn-limit"
+)
+
 type Result struct {
 	ID                int64
 	URL               string
@@ -32,6 +38,12 @@ type Result struct {
 	Warning           string
 	Cached            bool
 	NotFound          bool
+	// Summarized is true when an LLM discussion summary call was made,
+	// successful or not. Callers count it against --hn-limit.
+	Summarized bool
+	// SummarySkipped is the reason (SummarySkipped*) when the discussion
+	// has comments but no summary was generated.
+	SummarySkipped string
 }
 
 type searchResponse struct {
@@ -57,7 +69,10 @@ type itemNode struct {
 	Children []itemNode `json:"children"`
 }
 
-func EnrichArticle(article model.Article, opts summarizer.Options, refresh bool) (*Result, error) {
+// EnrichArticle finds the HN submission for an article and summarizes its
+// discussion. A non-empty skipSummary (SummarySkipped*) keeps the lookup and
+// metadata but generates no summary; the reason is set in SummarySkipped.
+func EnrichArticle(article model.Article, opts summarizer.Options, refresh bool, skipSummary string) (*Result, error) {
 	if !refresh && strings.TrimSpace(article.HNSummary) != "" && article.HNItemID > 0 {
 		return &Result{
 			ID:                article.HNItemID,
@@ -75,6 +90,16 @@ func EnrichArticle(article model.Article, opts summarizer.Options, refresh bool)
 			Points:   article.HNPoints,
 			Comments: article.HNComments,
 			Cached:   true,
+		}, nil
+	}
+	if !refresh && skipSummary != "" && article.HNItemID > 0 && article.HNFetched != nil {
+		return &Result{
+			ID:             article.HNItemID,
+			URL:            ItemURL(article.HNItemID),
+			Points:         article.HNPoints,
+			Comments:       article.HNComments,
+			Cached:         true,
+			SummarySkipped: skipSummary,
 		}, nil
 	}
 
@@ -117,6 +142,10 @@ func EnrichArticle(article model.Article, opts summarizer.Options, refresh bool)
 	if strings.TrimSpace(threadText) == "" {
 		return result, nil
 	}
+	if skipSummary != "" {
+		result.SummarySkipped = skipSummary
+		return result, nil
+	}
 
 	prompt := opts.HackerNewsPrompt
 	if strings.TrimSpace(prompt) == "" {
@@ -126,6 +155,7 @@ func EnrichArticle(article model.Article, opts summarizer.Options, refresh bool)
 	if maxRequestBytes <= 0 {
 		maxRequestBytes = config.DefaultHackerNewsMaxRequestBytes
 	}
+	result.Summarized = true
 	summary, err := summarizer.SummarizeTextWithPromptLimit(threadText, prompt, opts, maxRequestBytes)
 	if err != nil {
 		result.Warning = fmt.Sprintf("HN discussion summary failed: %v", err)

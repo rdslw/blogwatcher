@@ -135,7 +135,8 @@ Adds the matching HN discussion (points, comments, summary) to each article via 
 **Flags gate fetching/summarizing only:**
 - `--hn` (or `[summary].hackernews = true`) enables fetching missing HN data and generating missing HN discussion summaries for selected articles. Available on `summary` and `interest`.
 - `--hn-refresh` re-fetches HN metadata and regenerates HN summaries even if cached.
-- `--hn-limit N` (default 30) caps how many *new* HN discussion summaries are generated per run. Cached results are not counted.
+- `--hn-limit N` (default 30) caps how many *new* HN discussion summaries (LLM calls) are generated per run. HN lookups and cached results are not counted. Articles over the cap keep HN metadata and get a note (`HN summary skipped: --hn-limit (N) reached`); a later run summarizes them. The command does not fail.
+- In `interest`, hide-classified articles get HN metadata (points, comments) but no HN summary (`-v`: `HN summary: skipped for hide article`; JSON `hn.summary_skipped: "hide"`). `summary --hn` has no such rule.
 
 **Verbose output (`-v`):**
 - `summary -v` / `interest -v` / `articles -v`: print the HN line (points, comments, URL; `articles` adds the fetched timestamp) and the HN summary char/word counts.
@@ -155,7 +156,7 @@ Persisted fields: `hn_item_id` (0 = checked, no match), `hn_points`, `hn_comment
 
 **`<article>` fields:** `id`, `blog_id`, `blog_name?`, `title`, `url`, `published_date?`, `discovered_date?`, `is_read`, `summary?`, `summary_engine?`, `interest_state?`, `interest_reason?`, `interest_engine?`, `interest_judged?`, `hn?`.
 
-**`hn` object** (present only when the article has been HN-checked): `fetched`, `found` (bool), and when found: `item_id`, `url`, `points`, `comments`, `summary?`, `warning?`, `cached?`.
+**`hn` object** (present only when the article has been HN-checked): `fetched`, `found` (bool), and when found: `item_id`, `url`, `points`, `comments`, `summary?`, `warning?`, `cached?`, `summary_skipped?` (`hide` or `hn-limit`, summary/interest results only).
 
 **Errors:** on failure, the command writes `{"error": "..."}` to stdout and exits non-zero. Optional fields are omitted when empty.
 

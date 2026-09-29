@@ -488,15 +488,6 @@ type HackerNewsOptions struct {
 	Options summarizer.Options
 }
 
-type HackerNewsLimitExceededError struct {
-	Limit int
-	Total int
-}
-
-func (e HackerNewsLimitExceededError) Error() string {
-	return fmt.Sprintf("ALERT: %d selected article(s) need Hacker News lookup/summary but --hn-limit is %d. Increase --hn-limit to continue.", e.Total, e.Limit)
-}
-
 func SummarizeArticle(db *storage.Database, articleID int64, forceExtractive bool, refresh bool, opts summarizer.Options, hnOpts HackerNewsOptions) (SummaryResult, error) {
 	article, err := db.GetArticle(articleID)
 	if err != nil {
@@ -978,20 +969,66 @@ func summaryDebugTag(r SummaryResult) string {
 	return ""
 }
 
+// hnSummaryBudget caps the HN discussion summaries (LLM calls) of one run.
+// HN lookups and metadata are cheap and are not counted. A negative limit
+// means no cap.
+type hnSummaryBudget struct {
+	limit     int
+	remaining int
+}
+
+func newHNSummaryBudget(limit int) *hnSummaryBudget {
+	return &hnSummaryBudget{limit: limit, remaining: limit}
+}
+
+func (b *hnSummaryBudget) exhausted() bool {
+	return b.limit >= 0 && b.remaining <= 0
+}
+
+func (b *hnSummaryBudget) use() {
+	if b.limit >= 0 && b.remaining > 0 {
+		b.remaining--
+	}
+}
+
 // enrichArticleHN fetches HN data for one article and persists it when fresh.
+// With skipHide, a hide-classified article gets HN metadata but no discussion
+// summary. When the budget is exhausted, the summary is skipped with a note;
+// a later run generates it, because the summary stays empty in the cache.
 // It returns the updated article, the HN result, an optional transient note
 // (e.g. when the HN lookup itself failed), and a non-nil error only for
 // hard failures the caller must propagate (e.g. cache write failure).
-func enrichArticleHN(db *storage.Database, article model.Article, opts HackerNewsOptions) (model.Article, *hackernews.Result, string, error) {
-	hn, err := enrichHackerNewsFn(article, opts.Options, opts.Refresh)
+func enrichArticleHN(db *storage.Database, article model.Article, opts HackerNewsOptions, budget *hnSummaryBudget, skipHide bool) (model.Article, *hackernews.Result, string, error) {
+	skipSummary := ""
+	switch {
+	case skipHide && article.InterestState == model.InterestStateHide:
+		skipSummary = hackernews.SummarySkippedHide
+	case budget.exhausted():
+		skipSummary = hackernews.SummarySkippedLimit
+	}
+	hn, err := enrichHackerNewsFn(article, opts.Options, opts.Refresh, skipSummary)
 	if err != nil {
 		return article, nil, fmt.Sprintf("HN lookup failed: %v", err), nil
 	}
-	if hn != nil && !hn.Cached {
+	if hn == nil {
+		return article, nil, "", nil
+	}
+	if hn.Summarized {
+		budget.use()
+	}
+	note := ""
+	if hn.SummarySkipped == hackernews.SummarySkippedLimit {
+		note = fmt.Sprintf("HN summary skipped: --hn-limit (%d) reached; a later run generates it.", opts.Limit)
+	}
+	if !hn.Cached {
 		fetched := time.Now().UTC()
 		summary := hn.DiscussionSummary
 		if hn.Warning != "" {
 			summary = ""
+		}
+		if hn.SummarySkipped != "" {
+			// Keep a summary from an earlier run (for example with --hn-refresh).
+			summary = article.HNSummary
 		}
 		if err := updateHackerNewsFn(db, article.ID, hn.ID, hn.Points, hn.Comments, summary, fetched); err != nil {
 			return article, nil, "", fmt.Errorf("failed to cache HN data for article %d: %w", article.ID, err)
@@ -1002,22 +1039,14 @@ func enrichArticleHN(db *storage.Database, article model.Article, opts HackerNew
 		article.HNSummary = summary
 		article.HNFetched = &fetched
 	}
-	return article, hn, "", nil
+	return article, hn, note, nil
 }
 
 func enrichSummaryResults(db *storage.Database, results []SummaryResult, opts HackerNewsOptions) ([]SummaryResult, error) {
 	if opts.Enabled {
-		work := 0
-		for _, r := range results {
-			if needsHackerNewsWork(r.Article, opts.Refresh) {
-				work++
-			}
-		}
-		if err := checkHackerNewsLimit(opts, work); err != nil {
-			return nil, err
-		}
+		budget := newHNSummaryBudget(opts.Limit)
 		for i := range results {
-			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
+			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts, budget, false)
 			if err != nil {
 				return nil, err
 			}
@@ -1037,43 +1066,21 @@ func enrichSummaryResults(db *storage.Database, results []SummaryResult, opts Ha
 }
 
 func enrichSummaryResult(db *storage.Database, result SummaryResult, opts HackerNewsOptions) (SummaryResult, error) {
-	if opts.Enabled {
-		work := 0
-		if needsHackerNewsWork(result.Article, opts.Refresh) {
-			work = 1
-		}
-		if err := checkHackerNewsLimit(opts, work); err != nil {
-			return result, err
-		}
-		article, hn, note, err := enrichArticleHN(db, result.Article, opts)
-		if err != nil {
-			return SummaryResult{}, err
-		}
-		result.Article = article
-		result.HackerNews = hn
-		if note != "" {
-			result.Warning = appendNote(result.Warning, note)
-		}
+	results, err := enrichSummaryResults(db, []SummaryResult{result}, opts)
+	if err != nil {
+		return SummaryResult{}, err
 	}
-	if result.HackerNews == nil {
-		result.HackerNews = cachedHackerNewsResult(result.Article)
-	}
-	return result, nil
+	return results[0], nil
 }
 
+// enrichInterestResults adds HN data to interest results. Hide-classified
+// articles get HN metadata but no discussion summary: the classifier does not
+// use HN data, so a summary for an article the user hides is wasted cost.
 func enrichInterestResults(db *storage.Database, results []InterestResult, opts HackerNewsOptions) ([]InterestResult, error) {
 	if opts.Enabled {
-		work := 0
-		for _, r := range results {
-			if needsHackerNewsWork(r.Article, opts.Refresh) {
-				work++
-			}
-		}
-		if err := checkHackerNewsLimit(opts, work); err != nil {
-			return nil, err
-		}
+		budget := newHNSummaryBudget(opts.Limit)
 		for i := range results {
-			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts)
+			article, hn, note, err := enrichArticleHN(db, results[i].Article, opts, budget, true)
 			if err != nil {
 				return nil, err
 			}
@@ -1093,28 +1100,11 @@ func enrichInterestResults(db *storage.Database, results []InterestResult, opts 
 }
 
 func enrichInterestResult(db *storage.Database, result InterestResult, opts HackerNewsOptions) (InterestResult, error) {
-	if opts.Enabled {
-		work := 0
-		if needsHackerNewsWork(result.Article, opts.Refresh) {
-			work = 1
-		}
-		if err := checkHackerNewsLimit(opts, work); err != nil {
-			return result, err
-		}
-		article, hn, note, err := enrichArticleHN(db, result.Article, opts)
-		if err != nil {
-			return InterestResult{}, err
-		}
-		result.Article = article
-		result.HackerNews = hn
-		if note != "" {
-			result.Note = appendNote(result.Note, note)
-		}
+	results, err := enrichInterestResults(db, []InterestResult{result}, opts)
+	if err != nil {
+		return InterestResult{}, err
 	}
-	if result.HackerNews == nil {
-		result.HackerNews = cachedHackerNewsResult(result.Article)
-	}
-	return result, nil
+	return results[0], nil
 }
 
 // cachedHackerNewsResult builds a *hackernews.Result from cached DB fields so
@@ -1135,26 +1125,6 @@ func cachedHackerNewsResult(article model.Article) *hackernews.Result {
 		DiscussionSummary: article.HNSummary,
 		Cached:            true,
 	}
-}
-
-func checkHackerNewsLimit(opts HackerNewsOptions, total int) error {
-	if !opts.Enabled || opts.Limit < 0 || total <= opts.Limit {
-		return nil
-	}
-	return HackerNewsLimitExceededError{Limit: opts.Limit, Total: total}
-}
-
-func needsHackerNewsWork(article model.Article, refresh bool) bool {
-	if refresh {
-		return true
-	}
-	if article.HNItemID == 0 {
-		return true
-	}
-	if article.HNComments == 0 && article.HNFetched != nil {
-		return false
-	}
-	return strings.TrimSpace(article.HNSummary) == ""
 }
 
 func appendNote(existing string, note string) string {

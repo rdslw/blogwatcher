@@ -733,7 +733,9 @@ Configuration via ~/.blogwatcher/config.toml:
   hackernews_prompt = "..."        # Custom HN discussion summary prompt
 
 HN enrichment uses cached HN summaries when present. Missing HN summaries are
-generated only for selected articles and are capped by --hn-limit (default 30).
+generated only for selected articles. --hn-limit (default 30) caps the new HN
+discussion summaries (LLM calls) per run; HN lookups are not counted. Articles
+over the cap keep their HN metadata and get a note; a later run summarizes them.
 Use --hn-refresh to refresh HN metadata and regenerate HN summaries. Large HN
 threads are truncated to hackernews_max_request_bytes before the LLM call.
 
@@ -906,7 +908,7 @@ Estimated LLM cost per article (~10K input tokens, ~200 output tokens):
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Summarize posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
-	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
@@ -959,7 +961,10 @@ Configuration via ~/.blogwatcher/config.toml:
   interest_prompt = "Prefer compiler and database internals; hide AI hot takes and marketing."
 
 Use --hn or [summary].hackernews=true to add cached or missing Hacker News data.
-Missing HN summaries are capped by --hn-limit (default 30); --hn-refresh regenerates them.
+--hn-limit (default 30) caps new HN discussion summaries per run; articles over
+the cap get a note and are summarized by a later run. --hn-refresh regenerates them.
+Hide-classified articles get HN metadata (points, comments) but no HN summary,
+because the classifier does not use HN data.
 
 Use --json for a machine-readable list of interest results (with engine, cached,
 skipped, note, and HN data) for agentic use.
@@ -1129,7 +1134,7 @@ the cutoff date. The filter uses published date, falling back to discovered date
 	cmd.Flags().StringVar(&sinceFlag, "since", "", "Classify posts since YYYY-MM-DD or N days ago")
 	cmd.Flags().BoolVar(&hackerNews, "hn", false, "Add cached or missing Hacker News data for selected articles")
 	cmd.Flags().BoolVar(&hackerNewsRefresh, "hn-refresh", false, "Refresh Hacker News data and regenerate HN summaries")
-	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max HN discussion summaries to generate in this run")
+	cmd.Flags().IntVar(&hackerNewsLimit, "hn-limit", 30, "Max new HN discussion summaries (LLM calls) in this run; more get a note")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit a JSON document to stdout (for agentic use)")
 	return cmd
 }
@@ -1247,6 +1252,9 @@ func printHackerNewsResult(result *hackernews.Result, verbose bool) {
 	}
 	if result.Warning != "" {
 		printNoteField("HN note", result.Warning)
+	}
+	if result.SummarySkipped == hackernews.SummarySkippedHide {
+		printField("HN summary", "skipped for hide article")
 	}
 	printHackerNewsSummarySize(result.DiscussionSummary)
 }
