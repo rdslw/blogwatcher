@@ -36,6 +36,8 @@ func TestScrapeBlog(t *testing.T) {
 	}))
 	defer server.Close()
 
+	pinNow(t, time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC))
+
 	articles, err := ScrapeBlog(server.URL, "article h2 a, .news-card a", 2*time.Second)
 	if err != nil {
 		t.Fatalf("scrape blog: %v", err)
@@ -116,6 +118,8 @@ func TestExtractPublishedDateParsesTimeText(t *testing.T) {
     <span class="post-title">Anthropic invests in research</span>
   </a>
 </article>`)
+
+	pinNow(t, time.Date(2026, 3, 24, 12, 0, 0, 0, time.UTC))
 
 	published := extractPublishedDate(parent)
 	if published == nil {
@@ -237,4 +241,15 @@ func mustSelections(t *testing.T, html string) (*goquery.Selection, *goquery.Sel
 	}
 
 	return link, parent
+}
+
+// pinNow fixes the clock for the 180-day published-date sanity check, so
+// tests with literal dates do not start to fail as real time passes.
+func pinNow(t *testing.T, now time.Time) {
+	t.Helper()
+	originalNowFn := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() {
+		nowFn = originalNowFn
+	})
 }
