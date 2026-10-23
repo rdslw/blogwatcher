@@ -1414,6 +1414,39 @@ func TestSummarizeArticlesPropagatesFallbackWarningAndActualEngine(t *testing.T)
 	}
 }
 
+func TestSummarizeArticlesReportsFetchFailureWithoutRSSSummary(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	blog, err := AddBlog(db, "Test", "https://example.com", "", "")
+	if err != nil {
+		t.Fatalf("add blog: %v", err)
+	}
+	if _, err := db.AddArticle(model.Article{BlogID: blog.ID, Title: "Title", URL: "https://example.com/1"}); err != nil {
+		t.Fatalf("add article: %v", err)
+	}
+
+	originalSummarize := summarizeArticleFn
+	t.Cleanup(func() {
+		summarizeArticleFn = originalSummarize
+	})
+	summarizeArticleFn = func(string, bool, summarizer.Options) (summarizer.Result, error) {
+		return summarizer.Result{}, errors.New("http fetch failed: status 403; jina fetch failed: reader status 401")
+	}
+
+	results, err := SummarizeArticles(db, false, "", false, false, 10, 1, summarizer.Options{}, HackerNewsOptions{})
+	if err != nil {
+		t.Fatalf("summarize articles: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	want := "Summarization failed: http fetch failed: status 403; jina fetch failed: reader status 401."
+	if results[0].Warning != want {
+		t.Fatalf("expected warning %q, got %q", want, results[0].Warning)
+	}
+}
+
 func TestClassifyArticleInterestAutoGeneratesSummaryAndCachesResult(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()

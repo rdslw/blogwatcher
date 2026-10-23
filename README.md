@@ -270,6 +270,9 @@ Create `~/.blogwatcher/config.toml`:
 ```toml
 # Optional. When omitted, BlogWatcher sends its versioned application User-Agent.
 user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+# Optional Jina Reader fetch for article pages (JINA_API_KEY env wins over this key).
+jina_api_key = "jina_..."
+jina_fetch = "fallback"   # none | primary | fallback
 
 [summary]
 model = "gpt-6-luna"
@@ -291,6 +294,21 @@ Use the same language as the blog article.
 The top-level `user_agent` applies to feed discovery, RSS/Atom fetching, HTML
 scraping, and article-page fetching for summaries. If it is omitted or empty,
 BlogWatcher uses `blogwatcher/<version> (+https://github.com/rdslw/blogwatcher)`.
+
+#### Jina Reader article fetch
+
+Some sites block plain HTTP clients (for example with a Cloudflare 403) while a
+browser works. [Jina Reader](https://jina.ai/reader/) fetches such article pages
+as markdown. It is used only for summary (and `interest`) fetches, not for scans.
+
+- `jina_api_key`: the Jina key; `JINA_API_KEY` wins when set.
+- `jina_fetch`: `none` (HTTP only), `primary` (Jina, then HTTP), or `fallback`
+  (HTTP, then Jina). Default: `primary` with a key, otherwise `none`. An explicit
+  `primary` or `fallback` without a key is a config error.
+
+A stage fails on an error, a non-2xx status, or empty text; a `Note` shows the
+reason. Summaries from Jina text get the engine suffix `+jina` (e.g. `openai+jina`).
+Jina charges tokens for each fetched page.
 
 HN enrichment stores `hn_item_id`, `hn_points`, `hn_comments`, `hn_summary`, and
 `hn_fetched` in the article cache. `--hn` reuses cached HN summaries and generates

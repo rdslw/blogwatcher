@@ -723,6 +723,9 @@ Configuration via ~/.blogwatcher/config.toml:
 
   user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
                                       # Optional; defaults to Blogwatcher's versioned UA
+  jina_api_key = "jina_..."           # Optional Jina Reader key; JINA_API_KEY env wins
+  jina_fetch = "fallback"             # none | primary | fallback (article-page fetch)
+                                      # Default: primary with a key, otherwise none
 
   [summary]
   model = "gpt-6-luna"             # OpenAI model to use

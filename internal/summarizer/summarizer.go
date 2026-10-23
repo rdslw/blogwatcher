@@ -32,6 +32,8 @@ type Options struct {
 	SystemPrompt              string
 	MaxRequestBytes           int
 	UserAgent                 string
+	JinaAPIKey                string
+	JinaFetch                 string
 	HackerNewsPrompt          string
 	HackerNewsMaxRequestBytes int
 }
@@ -56,6 +58,8 @@ func OptionsFromConfig(cfg config.Config) Options {
 		SystemPrompt:              cfg.Summary.SystemPrompt,
 		MaxRequestBytes:           cfg.Summary.MaxRequestBytes,
 		UserAgent:                 cfg.UserAgent,
+		JinaAPIKey:                cfg.JinaAPIKey,
+		JinaFetch:                 cfg.JinaFetch,
 		HackerNewsPrompt:          cfg.Summary.HackerNewsPrompt,
 		HackerNewsMaxRequestBytes: cfg.Summary.HackerNewsMaxRequestBytes,
 	}
@@ -72,15 +76,21 @@ func resolveAPIKey(opts Options) string {
 }
 
 func SummarizeArticle(articleURL string, forceExtractive bool, opts Options) (Result, error) {
-	text, err := fetchArticleTextWithUserAgent(articleURL, opts.UserAgent)
+	text, source, fetchNote, err := fetchArticle(articleURL, opts)
 	if err != nil {
 		return Result{}, err
 	}
-	if text == "" {
-		return Result{}, fmt.Errorf("no text content found in article")
+	result := summarizeText(text, forceExtractive, opts)
+	if source == FetchSourceJina {
+		result.Engine += "+" + FetchSourceJina
 	}
+	result.Warning = joinNotes(fetchNote, result.Warning)
+	return result, nil
+}
+
+func summarizeText(text string, forceExtractive bool, opts Options) Result {
 	if wordCount(text) < verbatimWordLimit {
-		return Result{Summary: text, Engine: EngineVerbatim}, nil
+		return Result{Summary: text, Engine: EngineVerbatim}
 	}
 
 	if !forceExtractive {
@@ -88,17 +98,27 @@ func SummarizeArticle(articleURL string, forceExtractive bool, opts Options) (Re
 		if apiKey != "" {
 			summary, err := summarizeWithLLM(text, apiKey, opts)
 			if err == nil {
-				return Result{Summary: summary, Engine: EngineOpenAI}, nil
+				return Result{Summary: summary, Engine: EngineOpenAI}
 			}
 
 			return Result{
 				Summary: summarizeSnippet(text),
 				Engine:  EngineSnippet,
 				Warning: fmt.Sprintf("OpenAI summarization failed: %v. Fell back to snippet summarization.", err),
-			}, nil
+			}
 		}
 	}
-	return Result{Summary: summarizeSnippet(text), Engine: EngineSnippet}, nil
+	return Result{Summary: summarizeSnippet(text), Engine: EngineSnippet}
+}
+
+func joinNotes(notes ...string) string {
+	var parts []string
+	for _, note := range notes {
+		if note != "" {
+			parts = append(parts, note)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func fetchArticleText(articleURL string) (string, error) {
@@ -156,8 +176,10 @@ func fetchArticleTextWithUserAgent(articleURL string, userAgent string) (string,
 		"[role='dialog']",
 	}, ", ")).Remove()
 
-	text := extractPreferredContent(doc)
+	return compactLines(extractPreferredContent(doc)), nil
+}
 
+func compactLines(text string) string {
 	lines := strings.Split(text, "\n")
 	var cleaned []string
 	for _, line := range lines {
@@ -166,7 +188,7 @@ func fetchArticleTextWithUserAgent(articleURL string, userAgent string) (string,
 			cleaned = append(cleaned, line)
 		}
 	}
-	return strings.Join(cleaned, "\n"), nil
+	return strings.Join(cleaned, "\n")
 }
 
 func fetchErrorURL(articleURL string, resp *http.Response) string {

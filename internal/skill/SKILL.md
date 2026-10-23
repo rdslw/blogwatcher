@@ -81,6 +81,8 @@ The `summary` command generates a short text summary for each article.
 # Optional global override for feed, blog-page, and article-page requests.
 # Omit to use blogwatcher/<version> (+https://github.com/rdslw/blogwatcher).
 user_agent = "blogwatcher/v1.2.3 (+https://github.com/rdslw/blogwatcher)"
+jina_api_key = "jina_..."        # or set JINA_API_KEY env var (env wins)
+jina_fetch = "fallback"          # none | primary | fallback; default: primary with a key, else none
 
 [summary]
 openai_api_key = "sk-..."       # or set OPENAI_API_KEY env var
@@ -241,7 +243,7 @@ remaining-blogs — no updates.
 ## Notes
 
 - State is stored locally in `~/.blogwatcher/`.
-- Config at `~/.blogwatcher/config.toml` — optional top-level `user_agent`, plus `[summary]` and `[interest]` sections with per-blog interest overrides.
+- Config at `~/.blogwatcher/config.toml` — optional top-level `user_agent`, `jina_api_key`, and `jina_fetch`, plus `[summary]` and `[interest]` sections with per-blog interest overrides.
 - HTML scrape blogs need a CSS selector — may break if site redesigns. RSS blogs are more reliable.
 - Blogs with a scrape selector skip RSS feed discovery during scan (avoids slow probes). Use `--feed-discovery` to override.
 - `scan` is idempotent — safe to run multiple times.

@@ -933,6 +933,7 @@ func summarizeOne(db *storage.Database, article model.Article, blogName string, 
 				Article:  article,
 				BlogName: blogName,
 				Engine:   engine,
+				Warning:  fmt.Sprintf("Summarization failed: %v.", err),
 			}, nil
 		}
 

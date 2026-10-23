@@ -71,3 +71,57 @@ func TestInterestPromptForBlogUsesOverrideWhenPresent(t *testing.T) {
 		t.Fatalf("expected fallback default prompt, got %q", got)
 	}
 }
+
+func TestLoadResolvesJinaFetch(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   string
+		env      string
+		wantKey  string
+		wantMode string
+		wantErr  string
+	}{
+		{name: "no key defaults to none", wantMode: JinaFetchNone},
+		{name: "config key defaults to primary", config: `jina_api_key = "cfg-key"`, wantKey: "cfg-key", wantMode: JinaFetchPrimary},
+		{name: "env key defaults to primary", env: "env-key", wantKey: "env-key", wantMode: JinaFetchPrimary},
+		{name: "env key wins over config key", config: `jina_api_key = "cfg-key"`, env: "env-key", wantKey: "env-key", wantMode: JinaFetchPrimary},
+		{name: "explicit none wins over key", config: "jina_api_key = \"cfg-key\"\njina_fetch = \"none\"", wantKey: "cfg-key", wantMode: JinaFetchNone},
+		{name: "explicit fallback", config: "jina_fetch = \"Fallback\"", env: "env-key", wantKey: "env-key", wantMode: JinaFetchFallback},
+		{name: "explicit primary without key", config: `jina_fetch = "primary"`, wantErr: `jina_fetch = "primary" requires jina_api_key or JINA_API_KEY`},
+		{name: "explicit fallback without key", config: `jina_fetch = "fallback"`, wantErr: `jina_fetch = "fallback" requires jina_api_key or JINA_API_KEY`},
+		{name: "invalid mode", config: `jina_fetch = "always"`, env: "env-key", wantErr: `invalid jina_fetch "always" (use none, primary, or fallback)`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("JINA_API_KEY", tt.env)
+			if tt.config != "" {
+				configDir := filepath.Join(home, ".blogwatcher")
+				if err := os.MkdirAll(configDir, 0o755); err != nil {
+					t.Fatalf("create config directory: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(tt.config+"\n"), 0o600); err != nil {
+					t.Fatalf("write config: %v", err)
+				}
+			}
+
+			cfg, err := Load()
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("expected error %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.JinaAPIKey != tt.wantKey {
+				t.Fatalf("expected Jina key %q, got %q", tt.wantKey, cfg.JinaAPIKey)
+			}
+			if cfg.JinaFetch != tt.wantMode {
+				t.Fatalf("expected jina_fetch %q, got %q", tt.wantMode, cfg.JinaFetch)
+			}
+		})
+	}
+}

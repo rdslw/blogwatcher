@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/rdslw/blogwatcher/internal/sitehttp"
@@ -63,10 +65,18 @@ func (cfg InterestConfig) PromptForBlog(blogName string) string {
 	return prompt
 }
 
+const (
+	JinaFetchNone     = "none"
+	JinaFetchPrimary  = "primary"
+	JinaFetchFallback = "fallback"
+)
+
 type Config struct {
-	UserAgent string         `toml:"user_agent"`
-	Summary   SummaryConfig  `toml:"summary"`
-	Interest  InterestConfig `toml:"interest"`
+	UserAgent  string         `toml:"user_agent"`
+	JinaAPIKey string         `toml:"jina_api_key"`
+	JinaFetch  string         `toml:"jina_fetch"`
+	Summary    SummaryConfig  `toml:"summary"`
+	Interest   InterestConfig `toml:"interest"`
 }
 
 func DefaultConfig() Config {
@@ -101,13 +111,13 @@ func Load() (Config, error) {
 
 	path, err := configPath()
 	if err != nil {
-		return cfg, nil
+		return cfg, resolveJina(&cfg)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg, nil
+			return cfg, resolveJina(&cfg)
 		}
 		return cfg, err
 	}
@@ -145,5 +155,31 @@ func Load() (Config, error) {
 		cfg.Interest.Blogs = map[string]InterestBlogConfig{}
 	}
 
-	return cfg, nil
+	return cfg, resolveJina(&cfg)
+}
+
+func resolveJina(cfg *Config) error {
+	if key := strings.TrimSpace(os.Getenv("JINA_API_KEY")); key != "" {
+		cfg.JinaAPIKey = key
+	}
+	cfg.JinaAPIKey = strings.TrimSpace(cfg.JinaAPIKey)
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.JinaFetch))
+	switch mode {
+	case "":
+		if cfg.JinaAPIKey != "" {
+			mode = JinaFetchPrimary
+		} else {
+			mode = JinaFetchNone
+		}
+	case JinaFetchNone:
+	case JinaFetchPrimary, JinaFetchFallback:
+		if cfg.JinaAPIKey == "" {
+			return fmt.Errorf("jina_fetch = %q requires jina_api_key or JINA_API_KEY", mode)
+		}
+	default:
+		return fmt.Errorf("invalid jina_fetch %q (use none, primary, or fallback)", cfg.JinaFetch)
+	}
+	cfg.JinaFetch = mode
+	return nil
 }
